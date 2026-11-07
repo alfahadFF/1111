@@ -1,0 +1,1874 @@
+/* ================================================================
+   reports.js — شاشة التقارير الشاملة — alfaprosys
+   ================================================================ */
+
+const DATA      = window.DEMO_DATA;
+let invoices, expenses, shifts, employees, customers, menuItems;
+function bindReportData() {
+  invoices  = DATA.invoices         || [];
+  expenses  = DATA.expenditures     || [];
+  shifts    = DATA.shifts_history   || [];
+  employees = DATA.employees        || [];
+  customers = DATA.customers        || [];
+  menuItems = DATA.items            || [];
+}
+
+/* ── أدوات مساعدة ── */
+function fmtMoney(n){ return fmtNum(n) + ' ل.س'; }
+function fmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  /* -u-nu-latn: أسماء الشهور تبقى عربية، والأرقام لاتينية (23 لا ٢٣) */
+  return dt.toLocaleDateString('ar-EG-u-nu-latn', { year:'numeric', month:'short', day:'numeric' });
+}
+/* ================================================================
+   التنقل
+   ================================================================ */
+const MGR_NAV = window.AlfaNav.MGR_NAV;
+const CURRENT = 'reports';
+const navLink = window.AlfaNav.linker(CURRENT);
+let navOpen = false;
+
+function toggleNav() {
+  navOpen = !navOpen;
+  document.getElementById('mgrMobileNav')?.classList.toggle('expanded', navOpen);
+  document.getElementById('mgrNavScrim')?.classList.toggle('show', navOpen);
+}
+function closeNav() {
+  navOpen = false;
+  document.getElementById('mgrMobileNav')?.classList.remove('expanded');
+  document.getElementById('mgrNavScrim')?.classList.remove('show');
+}
+function buildNav() {
+  const side   = document.getElementById('sideNav');
+  const mobile = document.getElementById('mobileNavGrid');
+  if (side)   side.innerHTML   = MGR_NAV.map(n => navLink(n, false)).join('');
+  if (mobile) mobile.innerHTML = MGR_NAV.map(n => navLink(n, true)).join('');
+}
+
+/* ================================================================
+   حالة الفلتر
+   ================================================================ */
+let currentPreset = 'today';
+let currentTab    = 'summary';
+let dateFrom      = '';
+let dateTo        = '';
+
+/* ── حساب نطاق التاريخ ── */
+function calcRange(preset) {
+  const now   = new Date();
+  const pad   = n => String(n).padStart(2,'0');
+  const fmt   = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const today = fmt(now);
+
+  if (preset === 'today')  return { from: today, to: today };
+
+  if (preset === 'week') {
+    const day = now.getDay(); // 0=Sun
+    const diff = (day === 0) ? 6 : day - 1;
+    const mon = new Date(now); mon.setDate(now.getDate() - diff);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    return { from: fmt(mon), to: fmt(sun) };
+  }
+
+  if (preset === 'month') {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last  = new Date(now.getFullYear(), now.getMonth()+1, 0);
+    return { from: fmt(first), to: fmt(last) };
+  }
+
+  if (preset === 'year') {
+    return {
+      from: `${now.getFullYear()}-01-01`,
+      to:   `${now.getFullYear()}-12-31`
+    };
+  }
+
+  if (preset === 'custom') {
+    return { from: dateFrom, to: dateTo };
+  }
+
+  return { from: today, to: today };
+}
+
+function labelForRange(from, to) {
+  if (from === to) return `📅 ${fmtDate(from)}`;
+  return `📅 ${fmtDate(from)} — ${fmtDate(to)}`;
+}
+
+/* ── تصفية البيانات حسب التاريخ ── */
+function inRange(dateStr, from, to) {
+  if (!dateStr) return false;
+  const d = dateStr.substring(0, 10);
+  return (!from || d >= from) && (!to || d <= to);
+}
+
+function filteredShifts(from, to) {
+  return shifts.filter(s => inRange(s.date, from, to));
+}
+function filteredInvoices(from, to) {
+  return invoices.filter(inv => inRange(inv.date || inv.created_at, from, to));
+}
+function filteredExpenses(from, to) {
+  return expenses.filter(ex => inRange(ex.date, from, to));
+}
+function reportPaidFactor(inv) {
+  const a = window.alfaInvoiceAccounting ? alfaInvoiceAccounting(inv) : null;
+  if (!a || a.cancelled || !a.total || !(a.recognized > 0)) return 0;
+  return Math.min(1, Math.max(0, Number(a.recognized) / Number(a.total)));
+}
+
+/* ================================================================
+   صفوف التقرير الموحّدة: ورديات مغلقة + أيام مشتقة من الفواتير
+   ----------------------------------------------------------------
+   المشكلة التي يُصلحها هذا: التقارير كانت مبنية حصرياً على
+   shifts_history (الورديات المغلقة). فإن لم تُغلق وردية — أو أُغلقت
+   ولم تُزامن — ظهر التقرير كله أصفاراً رغم وجود فواتير حقيقية،
+   لأن filteredInvoices() كان يُحسب ثم لا يُستخدم إطلاقاً.
+
+   القاعدة الآن: الفاتورة هي المصدر الأساس. الوردية المغلقة أوثق
+   لليوم الذي تغطيه، وما عداها يُشتق من الفواتير والمصروفات.
+   ================================================================ */
+function reportRows(from, to) {
+  const blank = (d) => ({
+    date: d,
+    sales_total: 0,
+    paid_total: 0,
+    invoices_count: 0,
+    paid_count: 0,
+    cancelled_count: 0,
+    unpaid_count: 0,
+    unpaid_total: 0,
+    partially_paid_count: 0,
+    by_type: { table: 0, takeaway: 0, delivery: 0, online: 0 },
+    by_payment: { cash: 0, deferred: 0, partial: 0, wallet: 0 },
+    unpaid_by_payment: { cash: 0, deferred: 0, partial: 0, wallet: 0 },
+    by_shift: { morning: 0, evening: 0, unknown: 0 },
+    unpaid_by_shift: { morning: 0, evening: 0, unknown: 0 },
+    shift_invoice_counts: { morning: 0, evening: 0, unknown: 0 },
+    expenditures: 0,
+    expense_count: 0,
+    cashiers: [],
+    shift_count: 0,
+    shift_keys: [],
+    shift_rows: [],
+  });
+  const byDay = {};
+  const ensure = d => byDay[d] || (byDay[d] = blank(d));
+
+  /* لا نضيف مبيعات الوردية إلى مبيعات الفواتير. سجل الوردية يستخدم فقط
+     كفهرس للورديات والاحتياط عندما لا توجد أي تفاصيل فواتير لذلك اليوم؛
+     بهذه القاعدة لا تتكرر المبيعات عند جمع المصدرين. */
+  filteredShifts(from, to).forEach(function (shift) {
+    const d = String(shift.date || '').substring(0, 10);
+    if (!d) return;
+    const row = ensure(d);
+    const key = String(shift.shift_key || shift.id || (shift.cashier_key || shift.cashier || '') + ':' + d);
+    if (row.shift_keys.indexOf(key) >= 0) return;
+    row.shift_keys.push(key);
+    row.shift_count += 1;
+    row.shift_rows.push(shift);
+    if (shift.cashier && row.cashiers.indexOf(shift.cashier) < 0) row.cashiers.push(shift.cashier);
+  });
+
+  filteredInvoices(from, to).forEach(function (inv) {
+    const d = String(inv.date || inv.created_at || '').substring(0, 10);
+    if (!d) return;
+    const row = ensure(d);
+    const a = window.alfaInvoiceAccounting
+      ? alfaInvoiceAccounting(inv)
+      : { issued: ['printed','modified','cancelled'].indexOf(String(inv.status || '')) >= 0,
+          cancelled: inv.status === 'cancelled', recognized: Number(inv.total) || 0,
+          paid_amount: Number(inv.total) || 0, unpaid_amount: 0, partially_paid: false };
+    if (!a.issued) return;
+
+    const kind = window.alfaInvoiceShiftKind ? alfaInvoiceShiftKind(inv) : 'unknown';
+    if (row.shift_invoice_counts[kind] == null) row.shift_invoice_counts[kind] = 0;
+    row.shift_invoice_counts[kind] += 1;
+    row.invoices_count += 1;
+    if (inv.cashier && row.cashiers.indexOf(inv.cashier) < 0) row.cashiers.push(inv.cashier);
+
+    if (a.cancelled) {
+      row.cancelled_count += 1;
+      return;
+    }
+
+    const recognized = Number(a.recognized) || 0;
+    const outstanding = Number(a.unpaid_amount) || 0;
+    row.sales_total += recognized;
+    row.paid_total += recognized;
+    row.unpaid_total += outstanding;
+    if (recognized > 0) row.paid_count += 1;
+    if (outstanding > 0) row.unpaid_count += 1;
+    if (a.partially_paid) row.partially_paid_count += 1;
+
+    const type = window.alfaOrderType ? alfaOrderType(inv) : (inv.type || 'takeaway');
+    if (row.by_type[type] == null) row.by_type[type] = 0;
+    row.by_type[type] += recognized;
+    if (row.by_shift[kind] == null) row.by_shift[kind] = 0;
+    row.by_shift[kind] += recognized;
+    if (outstanding > 0) {
+      if (row.unpaid_by_shift[kind] == null) row.unpaid_by_shift[kind] = 0;
+      row.unpaid_by_shift[kind] += outstanding;
+    }
+
+    const pay = String(inv.pay_type || 'cash').toLowerCase();
+    const payKey = pay === 'wallet' ? 'wallet' : pay === 'partial' ? 'partial' : pay === 'deferred' ? 'deferred' : 'cash';
+    row.by_payment[payKey] += recognized;
+    if (outstanding > 0) row.unpaid_by_payment[payKey] += outstanding;
+  });
+
+  /* fallback آمن: إذا لم تصل أي فاتورة لذلك اليوم، نستخدم سجل الوردية
+     كما هو محفوظ، لكن لا نستخدمه فوق تفاصيل فواتير موجودة. */
+  Object.keys(byDay).forEach(function (d) {
+    const row = byDay[d];
+    if (row.invoices_count > 0 || !row.shift_rows.length) return;
+    row.shift_rows.forEach(function (shift) {
+      const fallbackSales = Number(shift.sales_total) || 0;
+      row.sales_total += fallbackSales;
+      row.paid_total += fallbackSales;
+      row.invoices_count += Number(shift.invoices_count) || 0;
+      row.cancelled_count += Number(shift.cancelled_count) || 0;
+      row.paid_count += fallbackSales > 0 ? (Number(shift.invoices_count) || 0) : 0;
+      const bt = shift.by_type || {};
+      ['table', 'takeaway', 'delivery', 'online'].forEach(k => { row.by_type[k] += Number(bt[k]) || 0; });
+      ['cash', 'deferred', 'partial', 'wallet'].forEach(k => {
+        row.by_payment[k] += window.alfaShiftPaymentValue
+          ? alfaShiftPaymentValue(shift, k)
+          : Number((shift.by_payment || {})[k]) || 0;
+      });
+    });
+  });
+
+  /* المصروف مصدره بنود expenditures، ويُضاف مرة واحدة فقط. سجل الوردية
+     ليس مصدراً إضافياً هنا، لأن expenditures هو المرجع القابل للتدقيق. */
+  const directExpenseDays = {};
+  filteredExpenses(from, to).forEach(function (ex) {
+    const d = String(ex.date || '').substring(0, 10);
+    if (!d) return;
+    const row = ensure(d);
+    directExpenseDays[d] = true;
+    row.expenditures += Number(ex.amount) || 0;
+    row.expense_count += 1;
+  });
+  /* بيانات قديمة قد تحتوي قيمة expenditures داخل إغلاق الوردية فقط. نستخدمها
+     كاحتياط مرئي عندما لا توجد أي بنود مباشرة لذلك اليوم، ولا نخلطها معها. */
+  Object.keys(byDay).forEach(function (d) {
+    const row = byDay[d];
+    if (directExpenseDays[d] || !row.shift_rows.length) return;
+    const fallback = row.shift_rows.reduce((sum, shift) => sum + (Number(shift.expenditures) || 0), 0);
+    if (fallback > 0) {
+      row.expenditures = fallback;
+      row.expense_count = 0;
+      row.fallback_expense = true;
+    }
+  });
+
+  return Object.keys(byDay).sort().map(k => byDay[k]);
+}
+/* ================================================================
+   ضبط الفلتر
+   ================================================================ */
+function setPreset(btn, preset) {
+  currentPreset = preset;
+  document.querySelectorAll('.rpt-preset').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const customRow = document.getElementById('customRow');
+  if (preset === 'custom') {
+    customRow.style.display = 'flex';
+  } else {
+    customRow.style.display = 'none';
+    applyFilter();
+  }
+}
+
+function applyFilter() {
+  const range = calcRange(currentPreset);
+
+  if (currentPreset === 'custom') {
+    dateFrom = document.getElementById('dateFrom')?.value || '';
+    dateTo   = document.getElementById('dateTo')?.value   || '';
+    range.from = dateFrom;
+    range.to   = dateTo;
+  } else {
+    dateFrom = range.from;
+    dateTo   = range.to;
+  }
+
+  const lbl = document.getElementById('periodLabel');
+  if (lbl) lbl.textContent = labelForRange(range.from, range.to);
+  updatePrintHead();
+
+  renderTab(currentTab, range.from, range.to);
+}
+
+/* ================================================================
+   التبويبات
+   ================================================================ */
+function switchTab(btn, tab) {
+  currentTab = tab;
+  document.querySelectorAll('.rpt-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const range = calcRange(currentPreset);
+  renderTab(tab, range.from, range.to);
+}
+
+const TAB_LABELS = { summary:'الملخص', sales:'المبيعات', expenses:'المصروفات', items:'الأصناف', employees:'الموظفون', customers:'العملاء', compare:'مقارنة الفترات', cats:'التصنيفات', purchases:'المشتريات', consumption:'استهلاك المخزون', warehouse:'المستودع والحركات' };
+function updatePrintHead(){
+  const el = document.getElementById('rptPrintHead');
+  if (el) el.textContent = `alfaprosys — تقرير ${TAB_LABELS[currentTab] || ''} · ${labelForRange(dateFrom, dateTo)} · طُبع في ${new Date().toLocaleString('ar-EG-u-nu-latn')}`;
+}
+
+/* ================================================================
+   ⬇️ تصدير التقرير — Excel (CSV) أو طباعة/PDF لما يُعرض الآن
+   ================================================================ */
+function toggleExportMenu(ev){
+  ev.stopPropagation();
+  document.getElementById('exportMenu')?.classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest || !e.target.closest('.rpt-export'))
+    document.getElementById('exportMenu')?.classList.remove('open');
+});
+
+/* ================================================================
+   📐 نموذج التقرير الموحّد — مصدر واحد لإكسل وللطباعة
+   ----------------------------------------------------------------
+   كان التصدير ينسخ «نص ما على الشاشة»: الأرقام تخرج نصاً لا تُجمع
+   في إكسل، وتبويب الملخص (بطاقات بلا جدول) يخرج صفوفاً مبعثرة،
+   والطباعة كانت تصويراً لصفحة الويب. الآن يُبنى نموذج بيانات واحد
+   من الشاشة، ويُستخدم نفسه للملفين.
+   ================================================================ */
+
+const AR_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
+                   'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+function arDigitsToEn(s){
+  return String(s)
+    .replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, d => String(d.charCodeAt(0) - 0x06F0));
+}
+
+/* «٢٣ سبتمبر ٢٠٢٦» → كائن تاريخ حقيقي (ليُكتب تاريخاً في إكسل) */
+function parseArDate(s){
+  const t = arDigitsToEn(String(s || '').trim());
+  const m = t.match(/^(\d{1,2})\s+(\S+)\s+(\d{4})$/);
+  if (!m) return null;
+  const mi = AR_MONTHS.indexOf(m[2]);
+  if (mi < 0) return null;
+  const d = new Date(Number(m[3]), mi, Number(m[1]));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/* نص الخلية ← قيمة مكتوبة: رقم حقيقي، أو تاريخ، أو نص */
+function cellFrom(raw){
+  const src = String(raw == null ? '' : raw).replace(/\u00A0/g,' ').replace(/\s+/g,' ').trim();
+  if (!src || src === '—') return null;
+  const money = /ل\.س/.test(src);
+  const pct   = /%/.test(src);
+  let t = src.replace(/ل\.س/g,'').replace(/%/g,'').replace(/,/g,'');
+  t = arDigitsToEn(t).trim();
+  if (/^-?\d+(\.\d+)?$/.test(t)) {
+    let v = Number(t);
+    if (pct) v = v / 100;
+    return { v, t:'n', money, pct };
+  }
+  const dt = parseArDate(src);
+  if (dt) return { v: dt, t:'d', text: src };
+  return { v: src, t:'s' };
+}
+
+/* القيمة كما تظهر في المستند المطبوع */
+function cellText(c){
+  if (!c) return '';
+  if (c.t === 'n') {
+    if (c.pct) return fmtNum(Math.round(c.v * 100)) + '%';
+    const n = fmtNum(Math.round(c.v));
+    return c.money ? n + ' ل.س' : n;
+  }
+  if (c.t === 'd') return c.text || '';
+  return String(c.v);
+}
+
+/* ── بناء النموذج من التبويب المعروض حالياً ── */
+function buildExportModel(){
+  const sc = document.getElementById('tabContent');
+  const cfg = window.ALFA_CONFIG || {};
+  const model = {
+    restaurant: (cfg.thermal && cfg.thermal.restaurantName) || cfg.restaurantName || 'alfaprosys',
+    title: 'تقرير ' + (TAB_LABELS[currentTab] || currentTab || ''),
+    period: ((typeof labelForRange === 'function') ? labelForRange(dateFrom, dateTo) : '').replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\s]+/u, ''),
+    printedAt: new Date().toLocaleString('ar-EG-u-nu-latn'),
+    sections: [],
+  };
+  if (!sc) return model;
+
+  const tables = Array.prototype.slice.call(sc.querySelectorAll('table.rpt-table'));
+
+  if (tables.length) {
+    tables.forEach(function (tb) {
+      const card    = tb.closest('.rpt-card');
+      let   heading = '';
+      if (card) {
+        const h = card.querySelector('.rpt-card-title');
+        if (h) heading = h.textContent.trim().replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F\s]+/u, '');
+      }
+      const head = Array.prototype.map.call(tb.querySelectorAll('thead th'), th => th.textContent.trim());
+      const body = Array.prototype.map.call(tb.querySelectorAll('tbody tr'),
+        tr => Array.prototype.map.call(tr.cells, td => cellFrom(td.textContent)));
+      const foot = Array.prototype.map.call(tb.querySelectorAll('tfoot tr'),
+        tr => Array.prototype.map.call(tr.cells, td => cellFrom(td.textContent)));
+      if (head.length) model.sections.push({ heading: heading, head: head, rows: body, foot: foot });
+    });
+  }
+
+  /* تبويب بلا جداول (الملخص): البطاقات والإحصائيات → جدول «بيان / قيمة» */
+  if (!model.sections.length) {
+    const pairs = [];
+    Array.prototype.forEach.call(sc.querySelectorAll('.rpt-kpi'), k => pairs.push([
+      k.querySelector('.rpt-kpi-lbl') ? k.querySelector('.rpt-kpi-lbl').textContent.trim() : '',
+      k.querySelector('.rpt-kpi-val') ? k.querySelector('.rpt-kpi-val').textContent.trim() : '',
+    ]));
+    Array.prototype.forEach.call(sc.querySelectorAll('.rpt-stat'), k => pairs.push([
+      k.querySelector('.rpt-stat-lbl') ? k.querySelector('.rpt-stat-lbl').textContent.trim() : '',
+      k.querySelector('.rpt-stat-val') ? k.querySelector('.rpt-stat-val').textContent.trim() : '',
+    ]));
+    if (pairs.length) {
+      model.sections.push({
+        heading: 'إحصائيات التقرير',
+        head: ['البيان', 'القيمة'],
+        rows: pairs.map(p => [cellFrom(p[0]), cellFrom(p[1])]),
+        foot: [],
+      });
+    }
+  }
+
+  /* حذف الأعمدة البصرية فقط: بلا عنوان، أو عمود «الشريط».
+     أما العمود الفارغ مؤقتاً (مثل «الكاشير») فيُحفظ — قد يمتلئ ببيانات أخرى. */
+  model.sections.forEach(function (sec) {
+    const keep = [];
+    for (let c = 0; c < sec.head.length; c++) {
+      const h = String(sec.head[c] || '').trim();
+      if (!h || h === 'الشريط') continue;
+      keep.push(c);
+    }
+    if (!keep.length || keep.length === sec.head.length) return;
+    sec.head = keep.map(c => sec.head[c]);
+    sec.rows = sec.rows.map(r => keep.map(c => r[c]));
+    sec.foot = sec.foot.map(r => keep.map(c => r[c]));
+  });
+
+  return model;
+}
+
+/* ── رسم المستند الورقي داخل #rptPrintDoc ── */
+function renderPrintDoc(m){
+  const esc = window.e || (v => String(v == null ? '' : v));
+  let el = document.getElementById('rptPrintDoc');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rptPrintDoc';
+    document.body.appendChild(el);
+  }
+
+  const sections = m.sections.map(function (sec) {
+    const thead = '<thead><tr>' + sec.head.map(h => '<th>' + esc(h) + '</th>').join('') + '</tr></thead>';
+    const tbody = '<tbody>' + sec.rows.map(function (r) {
+      return '<tr>' + r.map(function (c) {
+        return '<td class="' + (c && (c.t === 'n' || c.t === 'd') ? 'rd-num' : '') + '">' + esc(cellText(c)) + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody>';
+    const tfoot = (sec.foot && sec.foot.length)
+      ? '<tfoot>' + sec.foot.map(function (r) {
+          return '<tr>' + r.map(function (c) {
+            return '<td class="' + (c && (c.t === 'n' || c.t === 'd') ? 'rd-num' : '') + '">' + esc(cellText(c)) + '</td>';
+          }).join('') + '</tr>';
+        }).join('') + '</tfoot>'
+      : '';
+    return '<section class="rd-sec">'
+      + (sec.heading ? '<h2 class="rd-h">' + esc(sec.heading) + '</h2>' : '')
+      + '<table class="rd-table">' + thead + tbody + tfoot + '</table>'
+      + '</section>';
+  }).join('');
+
+  el.innerHTML =
+    '<div class="rd-doc">'
+    + '<header class="rd-head">'
+    +   '<div class="rd-brand">🍽️ ' + esc(m.restaurant) + '</div>'
+    +   '<div class="rd-title">' + esc(m.title) + '</div>'
+    +   '<div class="rd-meta"><span>الفترة: ' + esc(m.period) + '</span>'
+    +   '<span>طُبع في: ' + esc(m.printedAt) + '</span></div>'
+    + '</header>'
+    + (sections || '<p class="rd-empty">لا توجد بيانات في هذه الفترة</p>')
+    + '<footer class="rd-foot">' + esc(m.restaurant) + ' — ' + esc(m.title) + '</footer>'
+    + '</div>';
+}
+
+/* ── زر «طباعة / PDF» ── */
+function printReport(){
+  document.getElementById('exportMenu') ? document.getElementById('exportMenu').classList.remove('open') : 0;
+  try { renderPrintDoc(buildExportModel()); } catch (err) { console.warn('printReport', err); }
+  const done = function () { document.body.classList.remove('printing-report'); };
+  document.body.classList.add('printing-report');
+  window.addEventListener('afterprint', done, { once: true });
+  setTimeout(done, 60000);
+  setTimeout(function () { window.print(); }, 80);
+}
+
+/* ── زر «Excel» — أرقام حقيقية قابلة للجمع ── */
+function exportReportXLSX(){
+  document.getElementById('exportMenu') ? document.getElementById('exportMenu').classList.remove('open') : 0;
+  const m = buildExportModel();
+  if (!m.sections.length) { showToast('لا توجد بيانات للتصدير', '⚠️'); return; }
+
+  const name = 'تقرير-' + (TAB_LABELS[currentTab] || currentTab) + '-' + dateFrom + '_' + dateTo;
+
+  if (!window.XLSX) { exportReportCSV(m, name); return; }
+
+  /* صفوف القيم + صفوف موازية تحمل وصف كل خلية (نص/رقم/نقود/نسبة/عنوان) */
+  const aoa = [], meta = [];
+  const push = function (vals, metas) { aoa.push(vals); meta.push(metas); };
+  const M = function (k) { return k || null; };
+
+  push([m.restaurant + ' — ' + m.title], [{ kind: 'title' }]);
+  push(['الفترة', m.period], [{ kind: 'label' }, { kind: 'text' }]);
+  push(['تاريخ التصدير', m.printedAt], [{ kind: 'label' }, { kind: 'text' }]);
+  push([], []);
+
+  let maxCols = 1;
+  m.sections.forEach(function (sec) {
+    maxCols = Math.max(maxCols, sec.head.length);
+    push([sec.heading || ''], [{ kind: 'section' }]);
+    push(sec.head.slice(), sec.head.map(() => ({ kind: 'header' })));
+    sec.rows.forEach(function (r) {
+      push(r.map(c => (c ? c.v : '')),
+           r.map(c => (c ? { kind: c.t === 'n' ? 'num' : (c.t === 'd' ? 'date' : 'text'), money: c.money, pct: c.pct } : { kind: 'text' })));
+    });
+    (sec.foot || []).forEach(function (r) {
+      push(r.map(c => (c ? c.v : '')),
+           r.map(c => (c ? { kind: 'total', money: c.money, pct: c.pct } : { kind: 'total' })));
+    });
+    push([], []);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const range = XLSX.utils.decode_range(ws['!ref']);
+
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (!cell) continue;
+      const mm = (meta[R] && meta[R][C]) || {};
+      if (mm.kind === 'num' || mm.kind === 'total') {
+        if (typeof cell.v !== 'number') continue;
+        cell.z = mm.pct ? '0%' : '#,##0';   // تنسيق عرض الأرقام
+      } else if (mm.kind === 'date') {
+        cell.z = 'yyyy-mm-dd';   /* يعمل سواء حُفظ كـ d أو كرقم تسلسلي */
+      }
+      /* عريض للترويسة وعناوين الأقسام ورؤوس الأعمدة وصف الإجمالي */
+      if (mm.kind === 'title' || mm.kind === 'section' || mm.kind === 'header' ||
+          mm.kind === 'total' || mm.kind === 'label') {
+        cell.s = { font: { bold: true } };
+      }
+    }
+  }
+
+  /* عروض الأعمدة مناسبة للمحتوى */
+  const widths = [];
+  aoa.forEach(function (row, ri) {
+    if (ri < 4) return;                 /* ترويسة المستند لا تحدد عروض الأعمدة */
+    row.forEach(function (v, i) {
+      let txt;
+      if (v instanceof Date)      txt = '2026-09-23';        /* 10 = طول التاريخ المعروض */
+      else if (typeof v === 'number') txt = String(Math.round(v).toLocaleString('en-US'));
+      else                        txt = String(v == null ? '' : v);
+      const len = txt.length + 4;
+      if (!widths[i] || widths[i] < len) widths[i] = len;
+    });
+  });
+  ws['!cols'] = widths.map(w => ({ wch: Math.min(46, Math.max(11, w)) }));
+
+  /* دمج صف العنوان على كامل العرض */
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, maxCols - 1) } }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'التقرير');
+  XLSX.writeFile(wb, name + '.xlsx', { cellStyles: true });
+  showToast('تم تصدير ملف Excel', '📊');
+}
+
+/* احتياط: إن لم تتوفر مكتبة الإكسل */
+function exportReportCSV(m, name){
+  m = m || buildExportModel();
+  name = name || ('تقرير-' + (TAB_LABELS[currentTab] || currentTab) + '-' + dateFrom + '_' + dateTo);
+  const q = function (v) {
+    v = String(v == null ? '' : v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  const rows = [[m.restaurant + ' — ' + m.title], ['الفترة', m.period], ['تاريخ التصدير', m.printedAt], []];
+  m.sections.forEach(function (sec) {
+    rows.push([sec.heading || '']);
+    rows.push(sec.head.slice());
+    sec.rows.forEach(r => rows.push(r.map(c => (c ? (c.t === 'n' ? c.v : cellText(c)) : ''))));
+    (sec.foot || []).forEach(r => rows.push(r.map(c => (c ? (c.t === 'n' ? c.v : cellText(c)) : ''))));
+    rows.push([]);
+  });
+  const csv = '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = name + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  showToast('تم تصدير CSV', '📄');
+}
+
+function renderTab(tab, from, to) {
+  const el = document.getElementById('tabContent');
+  if (!el) return;
+
+  switch (tab) {
+    case 'summary':   el.innerHTML = renderSummary(from, to);   break;
+    case 'sales':     el.innerHTML = renderSales(from, to);     break;
+    case 'expenses':  el.innerHTML = renderExpenses(from, to);  break;
+    case 'items':     el.innerHTML = renderItems(from, to);     break;
+    case 'employees': el.innerHTML = renderEmployees(from, to); break;
+    case 'customers': el.innerHTML = renderCustomers(from, to); break;
+    case 'compare':   el.innerHTML = renderCompare();            break;
+    case 'cats':      el.innerHTML = renderCatsReport(from, to);  break;
+    case 'purchases': el.innerHTML = renderPurchases(from, to);   break;
+    case 'consumption': el.innerHTML = renderInventoryConsumption(from, to); break;
+    case 'warehouse': el.innerHTML = renderWarehouse(from, to);   break;
+  }
+  /* المستند الورقي يُحدَّث مع كل تبويب — فيعمل زر الطباعة و Ctrl+P بنفس الشكل */
+  try { renderPrintDoc(buildExportModel()); } catch (err) { console.warn('rptPrintDoc', err); }
+}
+
+/* ================================================================
+   📊 تبويب الملخص
+   ================================================================ */
+function renderSummary(from, to) {
+  /* صفوف موحّدة: ورديات مغلقة + أيام مشتقة من الفواتير (لا أصفار بلا سبب) */
+  const sh   = reportRows(from, to);
+
+  const totalSales    = sh.reduce((s, x) => s + (x.sales_total || 0), 0);
+  const totalExp      = sh.reduce((s, x) => s + (x.expenditures || 0), 0);
+  const totalCash     = sh.reduce((s, x) => s + (x.by_payment?.cash || 0), 0);
+  const totalDeferred = sh.reduce((s, x) => s + (x.by_payment?.deferred || 0), 0);
+  const totalPartial  = sh.reduce((s, x) => s + (x.by_payment?.partial || 0), 0);
+  const totalWallet   = sh.reduce((s, x) => s + (x.by_payment?.wallet || 0), 0);
+  const totalUnpaid   = sh.reduce((s, x) => s + (x.unpaid_total || 0), 0);
+  const unpaidDeferred = sh.reduce((s, x) => s + (x.unpaid_by_payment?.deferred || 0), 0);
+  const netCash       = totalSales - totalExp;
+
+  const byType = {
+    table:    sh.reduce((s,x)=>s+(x.by_type?.table||0),0),
+    takeaway: sh.reduce((s,x)=>s+(x.by_type?.takeaway||0),0),
+    delivery: sh.reduce((s,x)=>s+(x.by_type?.delivery||0),0),
+    online:   sh.reduce((s,x)=>s+(x.by_type?.online||0),0),
+  };
+  const byShift = {
+    morning: sh.reduce((s,x)=>s+(x.by_shift?.morning||0),0),
+    evening: sh.reduce((s,x)=>s+(x.by_shift?.evening||0),0),
+    unknown: sh.reduce((s,x)=>s+(x.by_shift?.unknown||0),0),
+  };
+  const shiftInvoiceKinds = ['morning','evening','unknown'].filter(k =>
+    sh.some(x => (x.shift_invoice_counts?.[k] || 0) > 0)
+  );
+  const invCount  = sh.reduce((s,x)=>s+(x.invoices_count||0),0);
+  const paidCount = sh.reduce((s,x)=>s+(x.paid_count||0),0);
+  const cancelled = sh.reduce((s,x)=>s+(x.cancelled_count||0),0);
+  const unpaidCount = sh.reduce((s,x)=>s+(x.unpaid_count||0),0);
+  const shiftCount = Math.max(sh.reduce((s,x)=>s+(x.shift_count||0),0), shiftInvoiceKinds.length);
+  const avgInv    = paidCount > 0 ? Math.round(totalSales / paidCount) : 0;
+
+  /* ── رسم بار حسب نوع ── */
+  const typeTotal = byType.table + byType.takeaway + byType.delivery + byType.online || 1;
+  const bar = (val, color) => {
+    const w = Math.round(val / typeTotal * 100);
+    return `<div class="rpt-bar-seg" style="width:${w}%;background:${color}" title="${fmtMoney(val)}"></div>`;
+  };
+
+  /* ── رسم دونات بسيط (SVG) ── */
+  const payTotal = totalCash + totalDeferred + totalPartial + totalWallet || 1;
+  const donutSVG = buildDonut([
+    { val: totalCash,     color: 'var(--fahad-blue)',  label: 'نقدي'    },
+    { val: totalDeferred, color: 'var(--fahad-gold)',  label: 'آجل محصل' },
+    { val: totalPartial,  color: 'var(--sage, #5BA08A)', label: 'جزئي محصل' },
+    { val: totalWallet,   color: '#7C3AED', label: 'محفظة' },
+  ], payTotal);
+
+  /* ── رسم خط يومي (مبيعات) ── */
+  const lineChart = buildDailySalesLine(sh, from, to);
+
+  return `
+  <div class="rpt-summary-grid">
+
+    <!-- بطاقات الإجماليات -->
+    <div class="rpt-kpi-row">
+      <div class="rpt-kpi rpt-kpi-blue">
+        <div class="rpt-kpi-icon">🧾</div>
+        <div class="rpt-kpi-val">${fmtMoney(totalSales)}</div>
+        <div class="rpt-kpi-lbl">إجمالي المبيعات</div>
+      </div>
+      <div class="rpt-kpi rpt-kpi-red">
+        <div class="rpt-kpi-icon">💸</div>
+        <div class="rpt-kpi-val">${fmtMoney(totalExp)}</div>
+        <div class="rpt-kpi-lbl">إجمالي المصروفات</div>
+      </div>
+      <div class="rpt-kpi ${netCash>=0?'rpt-kpi-green':'rpt-kpi-red'}">
+        <div class="rpt-kpi-icon">${netCash>=0?'📈':'📉'}</div>
+        <div class="rpt-kpi-val">${fmtMoney(netCash)}</div>
+        <div class="rpt-kpi-lbl">صافي الربح</div>
+      </div>
+      <div class="rpt-kpi rpt-kpi-gold">
+        <div class="rpt-kpi-icon">🧾</div>
+        <div class="rpt-kpi-val">${fmtNum(invCount)}</div>
+        <div class="rpt-kpi-lbl">كل الفواتير المصدرة</div>
+      </div>
+      <div class="rpt-kpi rpt-kpi-red">
+        <div class="rpt-kpi-icon">⏳</div>
+        <div class="rpt-kpi-val">${fmtMoney(totalUnpaid)}</div>
+        <div class="rpt-kpi-lbl">غير محصل — لا يدخل المبيعات</div>
+      </div>
+    </div>
+
+    <!-- مجموع الوردّيتين من المصدر نفسه (الفواتير المحصلة) -->
+    <div class="rpt-card" style="margin-top:12px;">
+      <div class="rpt-card-title">🕘 مجموع ورديتي الصباح والمساء</div>
+      <div class="rpt-stats-grid">
+        <div class="rpt-stat"><span class="rpt-stat-lbl">🌅 الصباحية</span><span class="rpt-stat-val">${fmtMoney(byShift.morning)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">🌙 المسائية</span><span class="rpt-stat-val">${fmtMoney(byShift.evening)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">غير محددة</span><span class="rpt-stat-val">${fmtMoney(byShift.unknown)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">الإجمالي الفعلي</span><span class="rpt-stat-val">${fmtMoney(totalSales)}</span></div>
+      </div>
+    </div>
+
+    <!-- رسم خط المبيعات اليومية -->
+    <div class="rpt-card rpt-chart-card">
+      <div class="rpt-card-title">📈 المبيعات اليومية</div>
+      ${lineChart}
+    </div>
+
+    <!-- منحنى آخر 30 يوماً -->
+    <div class="rpt-card rpt-chart-card">
+      <div class="rpt-card-title">📅 منحنى آخر ٣٠ يوماً</div>
+      ${buildCurve30()}
+    </div>
+
+    <!-- نوع الطلب + طريقة الدفع -->
+    <div class="rpt-two-col">
+
+      <div class="rpt-card">
+        <div class="rpt-card-title">🍽️ توزيع نوع الطلب</div>
+        <div class="rpt-bar-chart">
+          <div class="rpt-bar-track">
+            ${bar(byType.table,    'var(--fahad-blue)')}
+            ${bar(byType.takeaway, 'var(--fahad-gold)')}
+            ${bar(byType.delivery, 'var(--sage,#5BA08A)')}
+            ${bar(byType.online,   '#7C3AED')}
+          </div>
+        </div>
+        <div class="rpt-legend">
+          <span class="rpt-leg-dot" style="background:var(--fahad-blue)"></span> طاولة ${fmtMoney(byType.table)}
+          <span class="rpt-leg-dot" style="background:var(--fahad-gold)"></span> سفري ${fmtMoney(byType.takeaway)}
+          <span class="rpt-leg-dot" style="background:var(--sage,#5BA08A)"></span> توصيل ${fmtMoney(byType.delivery)}
+          <span class="rpt-leg-dot" style="background:#7C3AED"></span> أونلاين ${fmtMoney(byType.online)}
+        </div>
+      </div>
+
+      <div class="rpt-card">
+        <div class="rpt-card-title">💳 طريقة الدفع</div>
+        <div class="rpt-donut-wrap">
+          ${donutSVG}
+          <div class="rpt-donut-center">
+            <div class="rpt-donut-total">${fmtMoney(totalCash+totalDeferred+totalPartial+totalWallet)}</div>
+            <div class="rpt-donut-sub">إجمالي</div>
+          </div>
+        </div>
+        <div class="rpt-legend">
+          <span class="rpt-leg-dot" style="background:var(--fahad-blue)"></span> نقدي ${fmtMoney(totalCash)}
+          <span class="rpt-leg-dot" style="background:var(--fahad-gold)"></span> آجل ${fmtMoney(totalDeferred)}
+          <span class="rpt-leg-dot" style="background:var(--sage,#5BA08A)"></span> جزئي محصل ${fmtMoney(totalPartial)}
+          <span class="rpt-leg-dot" style="background:#7C3AED"></span> محفظة ${fmtMoney(totalWallet)}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- إحصاءات إضافية -->
+    <div class="rpt-card">
+      <div class="rpt-card-title">📋 إحصاءات إضافية</div>
+      <div class="rpt-stats-grid">
+        <div class="rpt-stat"><span class="rpt-stat-lbl">متوسط الفاتورة</span><span class="rpt-stat-val">${fmtMoney(avgInv)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">فواتير ملغاة</span><span class="rpt-stat-val">${fmtNum(cancelled)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">عدد الورديات</span><span class="rpt-stat-val">${fmtNum(shiftCount)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">نسبة الإلغاء</span><span class="rpt-stat-val">${invCount>0?Math.round(cancelled/invCount*100):0}%</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">نسبة الربح</span><span class="rpt-stat-val">${totalSales>0?Math.round(netCash/totalSales*100):0}%</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">غير محصل</span><span class="rpt-stat-val">${fmtNum(unpaidCount)} · ${fmtMoney(totalUnpaid)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">آجل متراكم</span><span class="rpt-stat-val">${fmtMoney(unpaidDeferred)}</span></div>
+        <div class="rpt-stat"><span class="rpt-stat-lbl">الصباحي / المسائي</span><span class="rpt-stat-val">${fmtMoney(byShift.morning)} / ${fmtMoney(byShift.evening)}</span></div>
+      </div>
+    </div>
+
+  </div>`;
+}
+
+/* ================================================================
+   🧾 تبويب المبيعات
+   ================================================================ */
+function renderSales(from, to) {
+  const sh = reportRows(from, to);
+
+  if (!sh.length) return emptyState('لا توجد فواتير في هذه الفترة — جرّب «هذا الأسبوع» أو حدّد نطاقاً مخصصاً');
+
+  /* تجميع يومي */
+  const byDay = {};
+  sh.forEach(s => {
+    if (!byDay[s.date]) byDay[s.date] = { sales:0, invoices:0, paid:0, unpaid:0, unpaidTotal:0, cancelled:0, cashiers:[] };
+    byDay[s.date].sales       += s.sales_total || 0;
+    byDay[s.date].invoices    += s.invoices_count || 0;
+    byDay[s.date].paid        += s.paid_count || 0;
+    byDay[s.date].unpaid      += s.unpaid_count || 0;
+    byDay[s.date].unpaidTotal += s.unpaid_total || 0;
+    byDay[s.date].cancelled   += s.cancelled_count || 0;
+    if (!byDay[s.date].cashiers.includes(s.cashier)) byDay[s.date].cashiers.push(s.cashier);
+  });
+
+  const days = Object.keys(byDay).sort().reverse();
+  const totalSales = days.reduce((s,d)=>s+byDay[d].sales, 0);
+  const totalInv   = days.reduce((s,d)=>s+byDay[d].invoices, 0);
+
+  const rows = days.map(d => {
+    const day = byDay[d];
+    return `<tr>
+      <td>${fmtDate(d)}</td>
+      <td class="rpt-num">${fmtMoney(day.sales)}</td>
+      <td class="rpt-num">${fmtNum(day.invoices)}</td>
+      <td class="rpt-num">${day.paid>0?fmtMoney(Math.round(day.sales/day.paid)):'—'}</td>
+      <td class="rpt-num">${fmtNum(day.unpaid)} · ${fmtMoney(day.unpaidTotal)}</td>
+      <td class="rpt-num ${day.cancelled>0?'rpt-warn':''}">${fmtNum(day.cancelled)}</td>
+      <td>${day.cashiers.join(' / ')}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-head">
+      <div class="rpt-card-title">🧾 تفاصيل المبيعات اليومية</div>
+      <div class="rpt-card-sub">الإجمالي: <strong>${fmtMoney(totalSales)}</strong> — ${fmtNum(totalInv)} فاتورة</div>
+    </div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th>التاريخ</th>
+            <th>المبيعات</th>
+            <th>كل الفواتير</th>
+            <th>متوسط المحصل</th>
+            <th>غير محصلة</th>
+            <th>ملغاة</th>
+            <th>الكاشير</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr class="rpt-total-row">
+            <td>الإجمالي</td>
+            <td class="rpt-num">${fmtMoney(totalSales)}</td>
+            <td class="rpt-num">${fmtNum(totalInv)}</td>
+            <td class="rpt-num">${days.reduce((s,d)=>s+byDay[d].paid,0)>0?fmtMoney(Math.round(totalSales/days.reduce((s,d)=>s+byDay[d].paid,0))):'—'}</td>
+            <td class="rpt-num">${fmtNum(days.reduce((s,d)=>s+byDay[d].unpaid,0))} · ${fmtMoney(days.reduce((s,d)=>s+byDay[d].unpaidTotal,0))}</td>
+            <td class="rpt-num">${fmtNum(days.reduce((s,d)=>s+byDay[d].cancelled,0))}</td>
+            <td>—</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- تقسيم حسب نوع الطلب -->
+  ${renderSalesByType(sh)}`;
+}
+
+function renderSalesByType(sh) {
+  const types = { table:'طاولة', takeaway:'سفري', delivery:'توصيل', online:'أونلاين' };
+  const cols  = { table:'var(--fahad-blue)', takeaway:'var(--fahad-gold)', delivery:'var(--sage,#5BA08A)', online:'#7C3AED' };
+  const totals = {};
+  Object.keys(types).forEach(k => totals[k] = sh.reduce((s,x)=>s+(x.by_type?.[k]||0),0));
+  const grand = Object.values(totals).reduce((a,b)=>a+b,0) || 1;
+
+  const rows = Object.keys(types).map(k => `
+    <tr>
+      <td><span class="rpt-dot" style="background:${cols[k]}"></span> ${types[k]}</td>
+      <td class="rpt-num">${fmtMoney(totals[k])}</td>
+      <td class="rpt-num">${Math.round(totals[k]/grand*100)}%</td>
+      <td>
+        <div class="rpt-inline-bar">
+          <div class="rpt-inline-fill" style="width:${Math.round(totals[k]/grand*100)}%;background:${cols[k]}"></div>
+        </div>
+      </td>
+    </tr>`).join('');
+
+  return `
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">🍽️ مبيعات حسب نوع الطلب</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead><tr><th>النوع</th><th>المبلغ</th><th>النسبة</th><th>الشريط</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   💸 تبويب المصروفات
+   ================================================================ */
+function renderExpenses(from, to) {
+  const sh   = reportRows(from, to);
+  const exps = filteredExpenses(from, to);
+
+  /* كل بند المصروفات موجود داخل exps؛ لا نضيف قيمة الإغلاق مرة ثانية.
+     shiftExp هو الإجمالي الموحّد لليوم، وdirectExp يوضح مصدره التفصيلي. */
+  const shiftExp = sh.reduce((s,x)=>s+(x.expenditures||0),0);
+  const directExp= exps.reduce((s,x)=>s+(Number(x.amount)||0),0);
+  const total    = shiftExp;
+
+  /* تجميع حسب النوع */
+  const byType = {};
+  exps.forEach(ex => {
+    const t = ex.type || ex.category || 'أخرى';
+    byType[t] = (byType[t] || 0) + (ex.amount || 0);
+  });
+
+  const colors = ['var(--fahad-blue)','var(--fahad-gold)','var(--clay,#C25B3E)','var(--sage,#5BA08A)',
+                  '#7C3AED','#DB2777','#059669','#D97706'];
+  const typeKeys = Object.keys(byType).sort((a,b) => byType[b]-byType[a]);
+
+  const pieRows = typeKeys.map((k,i) => {
+    const pct = total > 0 ? Math.round(byType[k]/total*100) : 0;
+    return `<tr>
+      <td><span class="rpt-dot" style="background:${colors[i%colors.length]}"></span>${e(k)}</td>
+      <td class="rpt-num">${fmtMoney(byType[k])}</td>
+      <td class="rpt-num">${pct}%</td>
+      <td><div class="rpt-inline-bar"><div class="rpt-inline-fill" style="width:${pct}%;background:${colors[i%colors.length]}"></div></div></td>
+    </tr>`;
+  }).join('');
+
+  const expenseDisplayRows = exps.length ? exps : sh.filter(x => x.fallback_expense).map(x => ({
+    date: x.date, type: 'مصروفات محفوظة عند إغلاق الوردية', note: 'تفصيل قديم غير متاح في جدول المصروفات', amount: x.expenditures, cashier: 'سجل الوردية'
+  }));
+  const expRows = expenseDisplayRows.length ? expenseDisplayRows.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).map(ex => {
+    const meta = window.alfaExpenseMeta ? alfaExpenseMeta(ex) : {};
+    const shiftLabel = meta.shift_kind === 'morning' ? 'الصباحية' : meta.shift_kind === 'evening' ? 'المسائية' : (meta.shift_key ? 'مرتبطة بورديّة' : 'غير مرتبطة');
+    const note = window.alfaExpenseNoteText ? alfaExpenseNoteText(ex) : (ex.description || ex.note || '—');
+    return `<tr>
+      <td>${fmtDate(ex.date)}</td>
+      <td>${e(ex.type||ex.category||'—')}</td>
+      <td>${e(note || '—')}</td>
+      <td class="rpt-num">${fmtMoney(ex.amount)}</td>
+      <td>${e(shiftLabel)} · ${e(ex.added_by||ex.cashier||'—')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="5" class="rpt-empty-row">لا توجد بنود مصروفات في هذه الفترة</td></tr>`;
+
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-red">
+      <div class="rpt-kpi-icon">💸</div>
+      <div class="rpt-kpi-val">${fmtMoney(total)}</div>
+      <div class="rpt-kpi-lbl">إجمالي المصروفات</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-gold">
+      <div class="rpt-kpi-icon">🔒</div>
+      <div class="rpt-kpi-val">${fmtMoney(shiftExp)}</div>
+      <div class="rpt-kpi-lbl">مصروفات الورديات</div>
+    </div>
+      <div class="rpt-kpi rpt-kpi-blue">
+      <div class="rpt-kpi-icon">📄</div>
+      <div class="rpt-kpi-val">${fmtMoney(directExp)}</div>
+      <div class="rpt-kpi-lbl">بنود المصروفات التفصيلية</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-green">
+      <div class="rpt-kpi-icon">🧾</div>
+      <div class="rpt-kpi-val">${fmtNum(exps.length)}</div>
+      <div class="rpt-kpi-lbl">عدد البنود</div>
+    </div>
+  </div>
+
+  ${typeKeys.length ? `
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">📊 المصروفات حسب النوع</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead><tr><th>النوع</th><th>المبلغ</th><th>النسبة</th><th>الشريط</th></tr></thead>
+        <tbody>${pieRows}</tbody>
+      </table>
+    </div>
+  </div>` : ''}
+
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">📋 سجل المصروفات</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr><th>التاريخ</th><th>النوع</th><th>الوصف</th><th>المبلغ</th><th>بواسطة / الوردية</th></tr>
+        </thead>
+        <tbody>${expRows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   🍔 تبويب الأصناف
+   ================================================================ */
+function renderItems(from, to) {
+  /* نحصي من الفواتير المفلترة */
+  const invs = filteredInvoices(from, to);
+
+  /* بناء خريطة اسم الصنف */
+  const nameMap = {};
+  menuItems.forEach(it => { nameMap[it.id] = it.name || it.option_name; });
+
+  /* تجميع الكميات والمبالغ */
+  const itemStats = {};
+  invs.forEach(inv => {
+    const factor = reportPaidFactor(inv);
+    if (!factor) return;
+    (inv.items || []).forEach(li => {
+      if (window.alfaInvoiceIsServiceLine && alfaInvoiceIsServiceLine(li)) return;
+      const meta = window.alfaInvoiceItemMeta ? alfaInvoiceItemMeta(li) : null;
+      const id   = (meta && meta.id) || li.item_id || li.id;
+      const name = (meta && meta.name) || li.name || nameMap[id] || id;
+      const qty = Number(li.qty) || 1;
+      const revenue = (Number(li.total) || (Number(li.price) || 0) * qty) * factor;
+      const category = (meta && (meta.category || meta.category_name)) || (li && li.category_name) || 'أخرى';
+      if (!itemStats[id]) itemStats[id] = { name, category, qty:0, revenue:0 };
+      itemStats[id].qty     += qty;
+      itemStats[id].revenue += revenue;
+    });
+  });
+
+  const list = Object.values(itemStats).sort((a,b)=>b.qty-a.qty);
+  const maxQty = list[0]?.qty || 1;
+
+  if (!list.length) return emptyState('لا توجد بيانات مبيعات بصنيف في هذه الفترة');
+
+  const rows = list.map((it, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td>${e(it.name)}</td>
+      <td>${e(it.category || 'أخرى')}</td>
+      <td class="rpt-num">${fmtNum(it.qty)}</td>
+      <td class="rpt-num">${fmtMoney(it.revenue)}</td>
+      <td>
+        <div class="rpt-inline-bar">
+          <div class="rpt-inline-fill" style="width:${Math.round(it.qty/maxQty*100)}%;background:var(--fahad-blue)"></div>
+        </div>
+      </td>
+    </tr>`).join('');
+
+  const totalRev = list.reduce((s,it)=>s+it.revenue,0);
+
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue">
+      <div class="rpt-kpi-icon">🍔</div>
+      <div class="rpt-kpi-val">${fmtNum(list.length)}</div>
+      <div class="rpt-kpi-lbl">عدد الأصناف</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-green">
+      <div class="rpt-kpi-icon">📦</div>
+      <div class="rpt-kpi-val">${fmtNum(list.reduce((s,it)=>s+it.qty,0))}</div>
+      <div class="rpt-kpi-lbl">إجمالي الوحدات</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-gold">
+      <div class="rpt-kpi-icon">💰</div>
+      <div class="rpt-kpi-val">${fmtMoney(totalRev)}</div>
+      <div class="rpt-kpi-lbl">إجمالي الإيراد</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-blue">
+      <div class="rpt-kpi-icon">🏆</div>
+      <div class="rpt-kpi-val">${e(list[0]?.name?.substring(0,16)||'—')}</div>
+      <div class="rpt-kpi-lbl">الأكثر مبيعاً</div>
+    </div>
+  </div>
+
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">🏆 ترتيب الأصناف حسب المبيعات</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr><th>#</th><th>الصنف</th><th>التصنيف</th><th>الكمية</th><th>الإيراد</th><th>الشريط</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   👤 تبويب الموظفون
+   ================================================================ */
+function renderEmployees(from, to) {
+  if (!employees.length) return emptyState('لا يوجد موظفون مسجلون');
+
+  const sh = reportRows(from, to);
+
+  /* إحصاء لكل كاشير: من الورديات المغلقة عند توفرها، وإلا من الفواتير */
+  const cashierStats = {};
+  const slot = (n) => (cashierStats[n] || (cashierStats[n] = { shifts:0, sales:0, invoices:0 }));
+  sh.forEach(s => {
+    if (s.isShift) {
+      const st = slot(s.cashier || '—');
+      st.shifts   += 1;
+      st.sales    += s.sales_total || 0;
+      st.invoices += s.invoices_count || 0;
+      return;
+    }
+    /* يوم مشتق من الفواتير: وزّع على كاشيري اليوم */
+    const list = (s.cashiers || []).filter(Boolean);
+    if (!list.length) return;
+    list.forEach(n => {
+      const st = slot(n);
+      st.sales    += (s.sales_total || 0) / list.length;
+      st.invoices += (s.invoices_count || 0) / list.length;
+    });
+  });
+
+  /* رواتب في الفترة */
+  const empRows = employees.map(emp => {
+    const salaries = (emp.salary_log || []).filter(sl => inRange(sl.date, from, to));
+    const advances  = salaries.filter(sl=>sl.type==='advance').reduce((s,sl)=>s+sl.amount,0);
+    const paid      = salaries.filter(sl=>sl.type==='salary').reduce((s,sl)=>s+sl.amount,0);
+    const deductions= (emp.deductions_log||[]).filter(dl=>inRange(dl.date,from,to))
+                       .reduce((s,dl)=>s+dl.amount,0);
+    const stats = cashierStats[emp.name] || { shifts:0, sales:0, invoices:0 };
+
+    return `<tr>
+      <td>${e(emp.name)}</td>
+      <td><span class="rpt-badge">${e(emp.role)}</span></td>
+      <td class="rpt-num">${fmtNum(stats.shifts)}</td>
+      <td class="rpt-num">${fmtMoney(stats.sales)}</td>
+      <td class="rpt-num">${fmtMoney(paid)}</td>
+      <td class="rpt-num ${advances>0?'rpt-warn':''}">${fmtMoney(advances)}</td>
+      <td class="rpt-num ${deductions>0?'rpt-red':''}">${fmtMoney(deductions)}</td>
+    </tr>`;
+  }).join('');
+
+  const totalPaid = employees.reduce((s,emp) => {
+    return s + (emp.salary_log||[]).filter(sl=>inRange(sl.date,from,to)&&sl.type==='salary')
+                                    .reduce((a,sl)=>a+sl.amount,0);
+  }, 0);
+
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue">
+      <div class="rpt-kpi-icon">👤</div>
+      <div class="rpt-kpi-val">${fmtNum(employees.length)}</div>
+      <div class="rpt-kpi-lbl">إجمالي الموظفين</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-red">
+      <div class="rpt-kpi-icon">💰</div>
+      <div class="rpt-kpi-val">${fmtMoney(totalPaid)}</div>
+      <div class="rpt-kpi-lbl">رواتب مدفوعة</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-gold">
+      <div class="rpt-kpi-icon">🔒</div>
+      <div class="rpt-kpi-val">${fmtNum(sh.length)}</div>
+      <div class="rpt-kpi-lbl">الورديات</div>
+    </div>
+  </div>
+
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">👤 أداء الموظفين</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th>الاسم</th><th>الدور</th><th>الورديات</th>
+            <th>المبيعات</th><th>راتب مدفوع</th><th>سلف</th><th>خصومات</th>
+          </tr>
+        </thead>
+        <tbody>${empRows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   👥 تبويب العملاء
+   ================================================================ */
+function renderCustomers(from, to) {
+  if (!customers.length) return emptyState('لا يوجد عملاء مسجلون');
+
+  const invs = filteredInvoices(from, to);
+
+  /* إحصاء مشتريات العملاء */
+  const custStats = {};
+  invs.forEach(inv => {
+    const cid = inv.customer_id;
+    if (!cid) return;
+    if (!custStats[cid]) custStats[cid] = { count:0, total:0, deferred:0 };
+    custStats[cid].count++;
+    custStats[cid].total    += inv.total || inv.amount || 0;
+    if (inv.pay_type === 'deferred' || inv.pay_type === 'آجل') {
+      custStats[cid].deferred += inv.total || inv.amount || 0;
+    }
+  });
+
+  const rows = customers.map(c => {
+    const st = custStats[c.id] || { count:0, total:0, deferred:0 };
+    const typeLabel = { regular:'مباشر', contract:'عقد', vip:'VIP', delivery:'توصيل' }[c.type] || c.type || '—';
+    return `<tr>
+      <td>${e(c.name)}</td>
+      <td><span class="rpt-badge rpt-badge-${c.type||'regular'}">${typeLabel}</span></td>
+      <td>${e(c.phone||'—')}</td>
+      <td class="rpt-num">${fmtNum(st.count)}</td>
+      <td class="rpt-num">${fmtMoney(st.total)}</td>
+      <td class="rpt-num ${st.deferred>0?'rpt-warn':''}">${fmtMoney(st.deferred)}</td>
+    </tr>`;
+  }).join('');
+
+  const topCust = customers
+    .filter(c => custStats[c.id])
+    .sort((a,b)=>(custStats[b.id]?.total||0)-(custStats[a.id]?.total||0))[0];
+
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue">
+      <div class="rpt-kpi-icon">👥</div>
+      <div class="rpt-kpi-val">${fmtNum(customers.length)}</div>
+      <div class="rpt-kpi-lbl">إجمالي العملاء</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-green">
+      <div class="rpt-kpi-icon">🛒</div>
+      <div class="rpt-kpi-val">${fmtNum(Object.keys(custStats).length)}</div>
+      <div class="rpt-kpi-lbl">عملاء نشطون</div>
+    </div>
+    <div class="rpt-kpi rpt-kpi-gold">
+      <div class="rpt-kpi-icon">🏆</div>
+      <div class="rpt-kpi-val">${e(topCust?.name||'—')}</div>
+      <div class="rpt-kpi-lbl">أعلى إنفاق</div>
+    </div>
+  </div>
+
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">👥 تفاصيل العملاء</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr><th>الاسم</th><th>النوع</th><th>الهاتف</th><th>الطلبات</th><th>الإجمالي</th><th>آجل</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   رسم الخط اليومي (SVG بسيط)
+   ================================================================ */
+function buildDailySalesLine(sh, from, to) {
+  /* تجميع يومي */
+  const byDay = {};
+  sh.forEach(s => {
+    byDay[s.date] = (byDay[s.date]||0) + (s.sales_total||0);
+  });
+
+  let days = Object.keys(byDay).sort();
+  /* عند اختيار شهر/نطاق كامل نرسم كل أيامه، لا الأيام التي ظهرت
+     في مجموعة الصفوف فقط. هذا يُبقي اليوم الذي لديه مبيعات في موضعه
+     الصحيح حتى لو كانت هناك وردية أو سجل آخر غير مكتمل. */
+  if (from && to && /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    const parse = function (x) { const a = x.split('-').map(Number); return new Date(a[0], a[1]-1, a[2]); };
+    const end = parse(to), cursor = parse(from), full = [];
+    while (cursor <= end && full.length < 370) {
+      const key = cursor.getFullYear() + '-' + String(cursor.getMonth()+1).padStart(2,'0') + '-' + String(cursor.getDate()).padStart(2,'0');
+      if (byDay[key] == null) byDay[key] = 0;
+      full.push(key); cursor.setDate(cursor.getDate() + 1);
+    }
+    days = full;
+  }
+  if (!days.length) return '<div class="rpt-chart-empty">لا توجد مبيعات في هذه الفترة — جرّب «هذا الأسبوع» أو نطاقاً مخصصاً</div>';
+
+  const W = 600, H = 160, PAD = 40;
+  const vals  = days.map(d => byDay[d]);
+  const maxV  = Math.max(...vals) || 1;
+  const stepX = (W - PAD * 2) / Math.max(days.length - 1, 1);
+
+  const points = vals.map((v, i) => {
+    const x = PAD + i * stepX;
+    const y = H - PAD - ((v / maxV) * (H - PAD * 2));
+    return `${x},${y}`;
+  }).join(' ');
+
+  const dotsMk = vals.map((v, i) => {
+    const x = PAD + i * stepX;
+    const y = H - PAD - ((v / maxV) * (H - PAD * 2));
+    return `<circle cx="${x}" cy="${y}" r="4" fill="var(--fahad-blue)" stroke="#fff" stroke-width="2">
+      <title>${fmtDate(days[i])}: ${fmtMoney(v)}</title>
+    </circle>`;
+  }).join('');
+
+  /* تسميات X */
+  const labelsX = days.map((d,i) => {
+    const x = PAD + i * stepX;
+    const lbl = days.length > 7 ? d.substring(5) : d.substring(5);
+    return `<text x="${x}" y="${H-8}" text-anchor="middle" font-size="10" fill="#64748b">${lbl}</text>`;
+  }).join('');
+
+  /* تسميات Y */
+  const yTicks = [0, 0.5, 1].map(t => {
+    const y = H - PAD - t * (H - PAD*2);
+    return `<text x="${PAD-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#94a3b8">${fmtNum(Math.round(maxV*t/1000))}k</text>
+    <line x1="${PAD}" y1="${y}" x2="${W-PAD}" y2="${y}" stroke="#e2e8f0" stroke-dasharray="3"/>`;
+  }).join('');
+
+  /* منطقة التعبئة */
+  const areaPoints = `${PAD},${H-PAD} ${points} ${PAD+stepX*(vals.length-1)},${H-PAD}`;
+
+  return `
+  <div class="rpt-line-chart">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${yTicks}
+      <polygon points="${areaPoints}" fill="var(--fahad-blue)" fill-opacity="0.1"/>
+      <polyline points="${points}" fill="none" stroke="var(--fahad-blue)" stroke-width="2.5" stroke-linejoin="round"/>
+      ${dotsMk}
+      ${labelsX}
+    </svg>
+  </div>`;
+}
+
+/* ================================================================
+   رسم الدونات (SVG)
+   ================================================================ */
+function buildDonut(segments, total) {
+  const R = 50, CX = 60, CY = 60, thickness = 18;
+  let offset = -Math.PI / 2;
+
+  const arcs = segments.map(seg => {
+    const frac = seg.val / total;
+    const angle = frac * 2 * Math.PI;
+    const x1 = CX + R * Math.cos(offset);
+    const y1 = CY + R * Math.sin(offset);
+    offset += angle;
+    const x2 = CX + R * Math.cos(offset);
+    const y2 = CY + R * Math.sin(offset);
+    const large = angle > Math.PI ? 1 : 0;
+    if (frac < 0.005) return '';
+    return `<path d="M${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)}"
+      fill="none" stroke="${seg.color}" stroke-width="${thickness}">
+      <title>${seg.label}: ${fmtMoney(seg.val)}</title>
+    </path>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 120 120" class="rpt-donut-svg">
+    <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="#f1f5f9" stroke-width="${thickness}"/>
+    ${arcs}
+  </svg>`;
+}
+
+/* ================================================================
+   مساعدات
+   ================================================================ */
+function emptyState(msg) {
+  return `<div class="rpt-empty"><span>📭</span><p>${e(msg)}</p></div>`;
+}
+
+/* ================================================================
+   تهيئة
+   ================================================================ */
+function init() {
+  bindReportData();
+  buildNav();
+
+  /* ضبط التواريخ الافتراضية */
+  const today = (window.businessDay ? businessDay() : new Date().toISOString().slice(0,10));
+  const df = document.getElementById('dateFrom');
+  const dt = document.getElementById('dateTo');
+  if (df) df.value = today;
+  if (dt) dt.value = today;
+
+  applyFilter();
+}
+
+/* سحب الفواتير للتقارير صراحةً بعد اكتمال اللقطة المحلية.
+   guarded() يرفع العمليات المعلقة أولاً ثم يعيد تطبيقها محلياً، لذلك
+   لا تضيع فاتورة محلية غير مرفوعة أثناء قراءة فواتير الأجهزة الأخرى. */
+function pullReportsFromCloud() {
+  if (!window.InvoiceSync || typeof InvoiceSync.pull !== 'function') return Promise.resolve({ skipped: true, reason: 'no-invoice-sync' });
+  return InvoiceSync.pull({ cloudPull: true }).then(function (result) {
+    bindReportData();
+    applyFilter();
+    if (window.showToast) {
+      if (result && result.pulled) {
+        showToast('تم تحميل ' + (Number(result.n) || 0) + ' فاتورة للتقارير', '✅');
+      } else if (result && result.error) {
+        showToast('فشل جلب الفواتير: ' + String(result.error).slice(0, 90), '⚠️');
+      } else if (result && result.skipped) {
+        showToast('لم يتم جلب فواتير السحابة: ' + String(result.reason || 'تحقق من الاتصال وتسجيل الدخول'), '⚠️');
+      }
+    }
+    return result;
+  }).catch(function (err) {
+    console.warn('[reports] invoice cloud pull failed:', err);
+    if (window.showToast) showToast('تعذر تحميل فواتير السحابة للتقارير', '⚠️');
+    return { skipped: true, error: String(err && err.message || err) };
+  });
+}
+
+(window.alfaStart||function(fn){fn();})(function () {
+  init();
+  /* نرسم المحلي أولاً، ثم نقرأ السحابة دون تعطيل فتح الشاشة. */
+  setTimeout(function () { pullReportsFromCloud(); }, 0);
+});
+
+/* ══ إعادة الربط بعد السحب من السحابة ══
+   بدون هذا السطر تبقى الشاشة على البذرة المحلية للأبد: bindReportData()
+   التقطت مراجع المصفوفات مرة واحدة، والسحب يستبدلها بمصفوفات جديدة. */
+window.alfaAutoRefresh(function () { bindReportData(); applyFilter(); }, 30000);
+
+/* ================================================================
+   ⚖️ مقارنة الفترات — أي فترتين تختارهما (يوم/أسبوع/شهر/متماثلان/مخصص)
+   ================================================================ */
+let cmpPreset = 'day';
+function ymd(d){ const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+
+function cmpRanges(preset){
+  const now = new Date();
+  const t = ymd(now);
+  if (preset === 'day')    return { A:{from:t,to:t}, B:{from:ymd(new Date(Date.now()-864e5)), to:ymd(new Date(Date.now()-864e5))} };
+  if (preset === 'sameDay'){
+    const prev = ymd(new Date(Date.now()-7*864e5));
+    return { A:{from:t,to:t}, B:{from:prev,to:prev} };
+  }
+  if (preset === 'week'){
+    const day = now.getDay(); const diff = (day===0)?6:day-1;
+    const mon = new Date(now); mon.setDate(now.getDate()-diff);
+    const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+    const pm = new Date(mon); pm.setDate(pm.getDate()-7);
+    const ps = new Date(sun); ps.setDate(ps.getDate()-7);
+    return { A:{from:ymd(mon),to:ymd(sun)}, B:{from:ymd(pm),to:ymd(ps)} };
+  }
+  if (preset === 'month'){
+    const f1 = new Date(now.getFullYear(), now.getMonth(), 1);
+    const l1 = new Date(now.getFullYear(), now.getMonth()+1, 0);
+    const f0 = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    const l0 = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { A:{from:ymd(f1),to:ymd(l1)}, B:{from:ymd(f0),to:ymd(l0)} };
+  }
+  /* custom */
+  const g = id => document.getElementById(id)?.value || '';
+  return {
+    A:{ from:g('cmpAFrom'), to:g('cmpATo') },
+    B:{ from:g('cmpBFrom'), to:g('cmpBTo') },
+  };
+}
+
+/* إحصاءات فترة كاملة (نفس منطق الملخص: الورديات + المصروفات، والأصناف من الفواتير) */
+function cmpStats(range){
+  const rows = reportRows(range.from, range.to);
+  const exp = filteredExpenses(range.from, range.to);
+  const invs = filteredInvoices(range.from, range.to);
+  const sales    = rows.reduce((s,x)=>s+(x.sales_total||0),0);
+  const count    = rows.reduce((s,x)=>s+(x.invoices_count||0),0);
+  const expTotal = rows.reduce((s,x)=>s+(x.expenditures||0),0);
+  const st = {
+    days: Math.max(1, Math.round((new Date(range.to) - new Date(range.from))/864e5) + 1),
+    sales, count,
+    avg: count>0 ? Math.round(sales/count) : 0,
+    expenses: expTotal,
+    net: sales - expTotal,
+    cash:     rows.reduce((s,x)=>s+(x.by_payment?.cash||0),0),
+    deferred: rows.reduce((s,x)=>s+(x.by_payment?.deferred||0),0),
+    table:    rows.reduce((s,x)=>s+(x.by_type?.table||0),0),
+    takeaway: rows.reduce((s,x)=>s+(x.by_type?.takeaway||0),0),
+    delivery: rows.reduce((s,x)=>s+(x.by_type?.delivery||0),0),
+    topItems: [],
+  };
+  const nameMap = {};
+  menuItems.forEach(it => { nameMap[it.id] = it.name || it.option_name; });
+  const agg = {};
+  invs.forEach(inv => (inv.items||[]).forEach(li => {
+    if (window.alfaInvoiceIsServiceLine && alfaInvoiceIsServiceLine(li)) return;
+    const meta = window.alfaInvoiceItemMeta ? alfaInvoiceItemMeta(li) : null;
+    const id = (meta && meta.id) || li.item_id || li.id;
+    const nm = (meta && meta.name) || li.name || nameMap[id] || id;
+    const qty = Number(li.qty) || 1;
+    if (!agg[id]) agg[id] = { name:nm, qty:0, revenue:0 };
+    agg[id].qty += qty;
+    agg[id].revenue += Number(li.total) || (Number(li.price)||0)*qty;
+  }));
+  st.topItems = Object.values(agg).sort((a,b)=>b.qty-a.qty).slice(0,5);
+  return st;
+}
+
+function setCmpPreset(btn, preset){
+  cmpPreset = preset;
+  document.querySelectorAll('.cmp-preset').forEach(b=>b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('cmpCustomRow').style.display = preset==='custom' ? 'flex' : 'none';
+  document.getElementById('tabContent').innerHTML = renderCompare();
+}
+
+function cmpDelta(a, b, goodUp, money){
+  const diff = a - b;
+  const pct = b ? (diff/b*100) : null;
+  const better = goodUp === null ? null : (goodUp ? diff > 0 : diff < 0);
+  const cls = (better === null || diff === 0) ? 'neutral' : better ? 'up' : 'down';
+  const arrow = diff === 0 ? '＝' : diff > 0 ? '▲' : '▼';
+  const val = money ? fmtMoney(Math.abs(diff)) : fmtNum(Math.abs(diff));
+  const pctTxt = (pct == null || !isFinite(pct)) ? '' : ` (${diff>0?'+':'−'}${Math.abs(pct).toFixed(1)}%)`;
+  return `<span class="cmp-delta ${cls}">${arrow} ${val}${pctTxt}</span>`;
+}
+
+function renderCompare(){
+  const R = cmpRanges(cmpPreset);
+  const A = cmpStats(R.A), B = cmpStats(R.B);
+  const lbl = r => (r.from === r.to) ? fmtDate(r.from) : `${fmtDate(r.from)} — ${fmtDate(r.to)}`;
+  const rows = [
+    ['إجمالي المبيعات', A.sales,    B.sales,    true,  true ],
+    ['عدد الفواتير',    A.count,    B.count,    true,  false],
+    ['متوسط الفاتورة',  A.avg,      B.avg,      true,  true ],
+    ['إجمالي المصروفات',A.expenses, B.expenses, false, true ],
+    ['صافي الربح',      A.net,      B.net,      true,  true ],
+    ['تحصيل نقدي',      A.cash,     B.cash,     true,  true ],
+    ['فواتير آجلة',     A.deferred, B.deferred, false, true ],
+    ['🍽️ صالة',         A.table,    B.table,    null,  true ],
+    ['🥡 سفري',         A.takeaway, B.takeaway, null,  true ],
+    ['🛵 توصيل',        A.delivery, B.delivery, null,  true ],
+  ].map(([name, a, b, goodUp, money]) => `
+    <tr>
+      <td class="cmp-metric">${name}</td>
+      <td class="cmp-val">${money ? fmtMoney(a) : fmtNum(a)}</td>
+      <td class="cmp-val">${money ? fmtMoney(b) : fmtNum(b)}</td>
+      <td>${cmpDelta(a,b,goodUp,money)}</td>
+    </tr>`).join('');
+
+  const topList = st => st.topItems.length ? st.topItems.map((it,i)=>`
+      <div class="cmp-item-row"><span>${i+1}. ${e(it.name)}</span><b>${fmtNum(it.qty)} × · ${fmtMoney(it.revenue)}</b></div>`).join('')
+    : '<div class="cmp-empty">لا مبيعات أصناف في هذه الفترة</div>';
+
+  const presetBtn = (id, label) =>
+    `<button class="cmp-preset ${cmpPreset===id?'active':''}" onclick="setCmpPreset(this,'${id}')">${label}</button>`;
+
+  return `
+  <div class="rpt-card cmp-card">
+    <div class="cmp-presets">
+      ${presetBtn('day','اليوم ↔ الأمس')}
+      ${presetBtn('sameDay','اليوم ↔ نفسه الأسبوع الماضي')}
+      ${presetBtn('week','هذا الأسبوع ↔ الماضي')}
+      ${presetBtn('month','هذا الشهر ↔ الماضي')}
+      ${presetBtn('custom','مخصص (أي فترتين)')}
+    </div>
+    <div class="cmp-custom-row" id="cmpCustomRow" style="display:${cmpPreset==='custom'?'flex':'none'}">
+      <label>الفترة أ<br><input type="date" id="cmpAFrom" value="${R.A.from}"><input type="date" id="cmpATo" value="${R.A.to}"></label>
+      <label>الفترة ب<br><input type="date" id="cmpBFrom" value="${R.B.from}"><input type="date" id="cmpBTo" value="${R.B.to}"></label>
+      <button class="cmp-apply" onclick="setCmpPreset(null,'custom')">قارن</button>
+    </div>
+
+    <div class="cmp-heads">
+      <div class="cmp-head cmp-head-a"><small>الفترة أ · ${A.days} يوم</small><b>${lbl(R.A)}</b></div>
+      <div class="cmp-head cmp-head-b"><small>الفترة ب · ${B.days} يوم</small><b>${lbl(R.B)}</b></div>
+    </div>
+
+    <div class="cmp-table-wrap">
+      <table class="cmp-table">
+        <thead><tr><th>المؤشر</th><th>الفترة أ</th><th>الفترة ب</th><th>الفرق</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+
+    <div class="cmp-tops">
+      <div class="cmp-top-side"><div class="cmp-top-title">🍔 الأعلى في الفترة أ</div>${topList(A)}</div>
+      <div class="cmp-top-side"><div class="cmp-top-title">🍔 الأعلى في الفترة ب</div>${topList(B)}</div>
+    </div>
+  </div>`;
+}
+
+/* ================================================================
+   📅 منحنى آخر ٣٠ يوماً — ثابت مهما كان الفلتر + إحصاءات الاتجاه
+   ================================================================ */
+function buildCurve30(){
+  const byDay = {};
+  /* من الصفوف الموحّدة (فواتير + ورديات) لا من الورديات وحدها */
+  reportRows(ymd(new Date(Date.now() - 29 * 864e5)), ymd(new Date()))
+    .forEach(s => { byDay[s.date] = (byDay[s.date] || 0) + (s.sales_total || 0); });
+  const days = [], vals = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = ymd(new Date(Date.now() - i * 864e5));
+    days.push(d); vals.push(byDay[d] || 0);
+  }
+  const total  = vals.reduce((a, b) => a + b, 0);
+  const avg    = Math.round(total / 30);
+  const best   = Math.max(...vals);
+  const bestIx = vals.indexOf(best);
+  const first  = vals.slice(0, 15).reduce((a, b) => a + b, 0);
+  const second = vals.slice(15).reduce((a, b) => a + b, 0);
+  const trend  = second > first * 1.05 ? 'up' : second < first * 0.95 ? 'down' : 'flat';
+
+  const W = 640, H = 190, PAD = 46;
+  const maxV = best || 1;
+  const stepX = (W - PAD * 2) / 29;
+  const xy = (v, i) => [PAD + i * stepX, H - PAD - (v / maxV) * (H - PAD * 2)];
+  const pts  = vals.map((v, i) => xy(v, i).join(',')).join(' ');
+  const dots = vals.map((v, i) => {
+    const [x, y] = xy(v, i);
+    const isLast = i === 29, isBest = i === bestIx;
+    if (v === 0 && !isLast) return '';
+    return `<circle cx="${x}" cy="${y}" r="${isLast ? 6 : isBest ? 5.5 : 3.5}"
+      fill="${isLast ? 'var(--fahad-gold)' : 'var(--fahad-blue)'}" stroke="#fff" stroke-width="2">
+      <title>${fmtDate(days[i])}: ${fmtMoney(v)}</title></circle>`;
+  }).join('');
+  const labelsX = days.map((d, i) => i % 5 === 0 || i === 29
+    ? `<text x="${xy(vals[i], i)[0]}" y="${H - 10}" text-anchor="middle" font-size="9.5" fill="#64748b">${d.substring(5)}</text>` : '').join('');
+  const yTicks = [0, 0.5, 1].map(t => {
+    const y = H - PAD - t * (H - PAD * 2);
+    return `<text x="${PAD - 4}" y="${y + 4}" text-anchor="end" font-size="9" fill="#94a3b8">${fmtNum(Math.round(maxV * t / 1000))}k</text>
+      <line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="#e2e8f0" stroke-dasharray="3"/>`;
+  }).join('');
+  const avgY = H - PAD - (avg / maxV) * (H - PAD * 2);
+  const area  = `${PAD},${H - PAD} ${pts} ${W - PAD},${H - PAD}`;
+
+  const trendTxt = { up: '▲ صاعد', down: '▼ متراجع', flat: '＝ مستقر' }[trend];
+  const chip = (lbl, val, cls = '') =>
+    `<div class="c30-chip ${cls}"><small>${lbl}</small><b>${val}</b></div>`;
+
+  return `
+  <div class="c30-stats">
+    ${chip('إجمالي ٣٠ يوم', fmtMoney(total))}
+    ${chip('المتوسط اليومي', fmtMoney(avg))}
+    ${chip('أفضل يوم', `${fmtMoney(best)}`, 'c30-best')}
+    ${chip('أفضل يوم بتاريخ', fmtDate(days[bestIx]))}
+    ${chip('الاتجاه (15ي ↔ 15ي)', trendTxt, 'c30-' + trend)}
+  </div>
+  <div class="rpt-line-chart">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${yTicks}
+      <line x1="${PAD}" y1="${avgY}" x2="${W - PAD}" y2="${avgY}" stroke="var(--fahad-gold)" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="${W - PAD}" y="${avgY - 6}" text-anchor="end" font-size="9" fill="var(--fahad-gold)" font-weight="700">المتوسط ${fmtNum(Math.round(avg / 1000))}k</text>
+      <polygon points="${area}" fill="var(--fahad-blue)" fill-opacity="0.1"/>
+      <polyline points="${pts}" fill="none" stroke="var(--fahad-blue)" stroke-width="2.5" stroke-linejoin="round"/>
+      ${dots}
+      ${labelsX}
+    </svg>
+  </div>`;
+}
+
+/* ================================================================
+   🏷️ مبيعات حسب التصنيف (خطة شاشات الإدارة)
+   ================================================================ */
+function renderCatsReport(from, to){
+  const invs = filteredInvoices(from, to);
+  const byCat = {};
+  invs.forEach(inv => {
+    const factor = reportPaidFactor(inv);
+    if (!factor) return;
+    (inv.items || []).forEach(li => {
+      if (window.alfaInvoiceIsServiceLine && alfaInvoiceIsServiceLine(li)) return;
+      const meta = window.alfaInvoiceItemMeta ? alfaInvoiceItemMeta(li) : { category: (li && li.category_name) || 'أخرى', name: li.name };
+      const key = meta.category || meta.category_name || (li && li.category_name) || 'أخرى';
+      if (!byCat[key]) byCat[key] = { name: key, icon: '🏷️', qty: 0, revenue: 0 };
+      const qty = Number(li.qty) || 1;
+      byCat[key].qty += qty;
+      byCat[key].revenue += (Number(li.total) || (Number(li.price) || 0) * qty) * factor;
+    });
+  });
+  const list = Object.values(byCat).filter(c => c.qty > 0).sort((a,b) => b.revenue - a.revenue);
+  const total = list.reduce((s,c) => s + c.revenue, 0) || 1;
+  if (!list.length) return emptyState('لا مبيعات أصناف في هذه الفترة');
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue"><div class="rpt-kpi-icon">🏷️</div><div class="rpt-kpi-val">${fmtNum(list.length)}</div><div class="rpt-kpi-lbl">تصنيفات نشطة</div></div>
+    <div class="rpt-kpi rpt-kpi-gold"><div class="rpt-kpi-icon">💰</div><div class="rpt-kpi-val">${fmtMoney(total)}</div><div class="rpt-kpi-lbl">إجمالي إيراد الأصناف</div></div>
+  </div>
+  <div class="rpt-card">
+    <table class="rpt-table">
+      <thead><tr><th>التصنيف</th><th>الكمية</th><th>الإيراد</th><th>الحصة</th></tr></thead>
+      <tbody>
+        ${list.map(c => `
+        <tr>
+          <td>${c.icon} ${e(c.name)}</td>
+          <td class="rpt-num">${fmtNum(c.qty)}</td>
+          <td class="rpt-num">${fmtMoney(c.revenue)}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="rpt-inline-bar"><div class="rpt-inline-fill" style="width:${Math.round(c.revenue/total*100)}%;background:var(--fahad-blue)"></div></div>
+              <b style="font-size:11px;">${Math.round(c.revenue/total*100)}%</b>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+/* ================================================================
+   📉 استهلاك المخزون اليومي — من حركات الخصم والكمية المتبقية
+   ================================================================ */
+function reportStockNumber(value) {
+  const s = String(value == null ? '' : value).replace(/[٠-٩]/g, function (d) {
+    return '٠١٢٣٤٥٦٧٨٩'.indexOf(d);
+  }).replace(/,/g, '').trim();
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+function renderInventoryConsumption(from, to) {
+  const materials = (DATA.inventory || []).filter(function (m) {
+    return m && m.trackable === true && !/^مستودع\s*-/.test(String(m.category || ''));
+  });
+  const rows = [];
+  materials.forEach(function (mat) {
+    const byDay = {};
+    (mat.log || []).forEach(function (log) {
+      const day = String(log.date || '').slice(0, 10);
+      if (!day || !inRange(day, from, to)) return;
+      (byDay[day] || (byDay[day] = [])).push(log);
+    });
+    Object.keys(byDay).forEach(function (day) {
+      const logs = byDay[day];
+      const latestById = function (list) { return list.slice().sort(function (a, b) {
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      })[0]; };
+      const closing = latestById(logs.filter(function (l) {
+        return /كمية متبقية نهاية اليوم:/.test(String(l.note || ''));
+      }));
+      const closingMatch = closing && String(closing.note || '').match(/كمية متبقية نهاية اليوم:\s*([0-9٠-٩.,]+)\s*\|\s*الكمية الكلية لليوم:\s*([0-9٠-٩.,]+)/);
+      const skewer = latestById(logs.filter(function (l) {
+        return /^تثبيت وزن سيخ الشاورما لليوم:/.test(String(l.note || ''));
+      }));
+      const skewerMatch = skewer && String(skewer.note || '').match(/:\s*([0-9٠-٩.,]+)/);
+      const autoOut = logs.filter(l => l.auto && l.type === 'out').reduce((s, l) => s + Math.abs(Number(l.qty) || 0), 0);
+      const autoIn = logs.filter(l => l.auto && l.type === 'in').reduce((s, l) => s + Math.abs(Number(l.qty) || 0), 0);
+      const totalIn = logs.filter(l => l.type === 'in' && !l.auto).reduce((s, l) => s + Math.abs(Number(l.qty) || 0), 0);
+      const totalOut = logs.filter(l => l.type === 'out' || l.type === 'waste').reduce((s, l) => s + Math.abs(Number(l.qty) || 0), 0);
+      let total = closingMatch ? reportStockNumber(closingMatch[2]) : (skewerMatch ? reportStockNumber(skewerMatch[1]) : null);
+      let remaining = closingMatch ? reportStockNumber(closingMatch[1]) : null;
+      let consumption = null;
+      let state = 'بانتظار تثبيت المتبقي';
+      if (closingMatch && total != null && remaining != null) {
+        consumption = Math.max(0, total - remaining);
+        state = 'مكتمل';
+      } else if (skewerMatch && total != null) {
+        consumption = Math.max(0, autoOut - autoIn);
+        remaining = Math.max(0, total - consumption);
+        state = 'استهلاك تلقائي';
+      } else if (autoOut || autoIn) {
+        consumption = Math.max(0, autoOut - autoIn);
+        state = 'خصم تلقائي — ثبّت المتبقي لإتمام التقرير';
+      }
+      rows.push({ day, name: mat.name, unit: mat.unit || '', total, remaining, consumption,
+        autoOut, autoIn, totalIn, totalOut, state });
+    });
+  });
+  rows.sort((a, b) => String(b.day).localeCompare(String(a.day)) || String(a.name).localeCompare(String(b.name), 'ar'));
+  if (!rows.length) return emptyState('لا توجد حركات مخزون في هذه الفترة');
+  const exact = rows.filter(r => r.consumption != null);
+  const totalConsumption = exact.reduce((s, r) => s + r.consumption, 0);
+  const completed = rows.filter(r => r.state === 'مكتمل').length;
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue"><div class="rpt-kpi-icon">📉</div><div class="rpt-kpi-val">${fmtNum(totalConsumption)}</div><div class="rpt-kpi-lbl">الاستهلاك المرصود</div></div>
+    <div class="rpt-kpi rpt-kpi-green"><div class="rpt-kpi-icon">✅</div><div class="rpt-kpi-val">${fmtNum(completed)}</div><div class="rpt-kpi-lbl">أيام مثبتة</div></div>
+    <div class="rpt-kpi rpt-kpi-gold"><div class="rpt-kpi-icon">🧾</div><div class="rpt-kpi-val">${fmtNum(rows.length)}</div><div class="rpt-kpi-lbl">سجلات المواد اليومية</div></div>
+  </div>
+  <div class="rpt-card rpt-full">
+    <div class="rpt-card-title">📉 الاستهلاك اليومي — الكلية ناقص المتبقي</div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead><tr><th>التاريخ</th><th>المادة</th><th>الكلية</th><th>المتبقي</th><th>الاستهلاك</th><th>الخصم التلقائي</th><th>الحالة</th></tr></thead>
+        <tbody>${rows.map(function (r) { return `
+          <tr>
+            <td>${e(r.day)}</td>
+            <td>${e(r.name)}</td>
+            <td class="rpt-num">${r.total == null ? '—' : fmtNum(r.total)} ${e(r.unit)}</td>
+            <td class="rpt-num">${r.remaining == null ? '—' : fmtNum(r.remaining)} ${e(r.unit)}</td>
+            <td class="rpt-num"><b>${r.consumption == null ? '—' : fmtNum(r.consumption) + ' ' + e(r.unit)}</b></td>
+            <td class="rpt-num">${fmtNum(Math.max(0, r.autoOut - r.autoIn))} ${e(r.unit)}</td>
+            <td>${e(r.state)}</td>
+          </tr>`; }).join('')}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px;color:var(--text-muted);font-size:11px;font-weight:700;">المشتريات والتحويلات تزيد الرصيد، والكمية المتبقية تُثبت في نهاية اليوم ولا تُعامل كإضافة.</div>
+  </div>`;
+}
+
+/* ================================================================
+   📦 أرصدة وحركات المستودع — بلا أسعار أو فواتير تحويل
+   ================================================================ */
+function renderWarehouse(from, to) {
+  const materials = ((DATA.inventory_materials && DATA.inventory_materials.length)
+    ? DATA.inventory_materials : (DATA.inventory || []));
+  const byId = {};
+  materials.forEach(function (m) { if (m && m.id) byId[String(m.id)] = m; });
+  const balances = materials.filter(function (m) { return /^مستودع/.test(String(m.category || '')); });
+  let logs = Array.isArray(DATA.inventory_log) && DATA.inventory_log.length
+    ? DATA.inventory_log.slice()
+    : (DATA.inventory || []).reduce(function (all, m) { return all.concat((m.log || []).map(function (l) {
+        return Object.assign({ material_id: m.id }, l);
+      })); }, []);
+  logs = logs.filter(function (l) {
+    return inRange(l.date, from, to) && /^مستودع/.test(String((byId[String(l.material_id)] || {}).category || l.category || ''));
+  }).sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); });
+  const typeLabel = { in: 'إضافة', out: 'تحويل/صرف', adjust: 'جرد/تعديل', transfer: 'تحويل' };
+  const qtyIn = logs.filter(l => l.type === 'in').reduce((s,l) => s + (Number(l.qty) || 0), 0);
+  const qtyOut = logs.filter(l => l.type === 'out' || l.type === 'transfer').reduce((s,l) => s + Math.abs(Number(l.qty) || 0), 0);
+  const balanceRows = balances.length ? balances.map(function (m) {
+    return `<tr><td>${e(m.name || '—')}</td><td>${e(m.category || '—')}</td><td class="rpt-num"><b>${fmtNum(m.qty)}</b></td><td>${e(m.unit || '—')}</td><td>${e(m.updated_at || m.date || '—')}</td></tr>`;
+  }).join('') : `<tr><td colspan="5" class="rpt-empty-row">لا توجد أرصدة مستودع</td></tr>`;
+  const logRows = logs.length ? logs.map(function (l) {
+    const m = byId[String(l.material_id)] || {};
+    const qty = Number(l.qty) || 0;
+    return `<tr><td>${e(l.date || '—')}</td><td>${e(m.name || l.name || l.material_id || '—')}</td><td>${e(typeLabel[l.type] || l.type || '—')}</td><td class="rpt-num">${fmtNum(qty)} ${e(m.unit || l.unit || '')}</td><td>${e(l.note || '—')}</td><td>${e(l.by || '—')}</td></tr>`;
+  }).join('') : `<tr><td colspan="6" class="rpt-empty-row">لا توجد حركات مستودع في هذه الفترة</td></tr>`;
+  return `<div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue"><div class="rpt-kpi-icon">📦</div><div class="rpt-kpi-val">${fmtNum(balances.length)}</div><div class="rpt-kpi-lbl">مواد المستودع</div></div>
+    <div class="rpt-kpi rpt-kpi-gold"><div class="rpt-kpi-icon">↔️</div><div class="rpt-kpi-val">${fmtNum(logs.length)}</div><div class="rpt-kpi-lbl">حركات في الفترة</div></div>
+    <div class="rpt-kpi rpt-kpi-green"><div class="rpt-kpi-icon">➕</div><div class="rpt-kpi-val">${fmtNum(qtyIn)}</div><div class="rpt-kpi-lbl">كميات مضافة</div></div>
+    <div class="rpt-kpi rpt-kpi-red"><div class="rpt-kpi-icon">➖</div><div class="rpt-kpi-val">${fmtNum(qtyOut)}</div><div class="rpt-kpi-lbl">كميات محوّلة/مصروفة</div></div>
+  </div>
+  <div class="rpt-card rpt-full"><div class="rpt-card-title">📦 الرصيد الحالي — قبل التحويل</div><div class="rpt-table-wrap"><table class="rpt-table"><thead><tr><th>المادة</th><th>التصنيف</th><th>الرصيد</th><th>الوحدة</th><th>آخر تحديث</th></tr></thead><tbody>${balanceRows}</tbody></table></div></div>
+  <div class="rpt-card rpt-full"><div class="rpt-card-title">↔️ سجل حركات المستودع</div><div class="rpt-table-wrap"><table class="rpt-table"><thead><tr><th>التاريخ</th><th>المادة</th><th>الحركة</th><th>الكمية</th><th>الملاحظة</th><th>بواسطة</th></tr></thead><tbody>${logRows}</tbody></table></div></div>`;
+}
+
+/* ================================================================
+   🚚 تقرير المشتريات — من سجلات إضافة المخزون (بالمورد والمسجّل)
+   ================================================================ */
+function renderPurchases(from, to){
+  const rows = [];
+  ((DATA.inventory) || []).forEach(inv => (inv.log || []).forEach(l => {
+    if (l.type !== 'in') return;
+    if (!inRange(l.date, from, to)) return;
+    rows.push({ date: l.date, mat: inv.name, unit: inv.unit, qty: l.qty,
+      cost: l.cost || inv.cost_per_unit || 0, mode: l.purchase_mode === 'wholesale' ? 'جملة' : 'مفرق', purchaseQty: l.purchase_qty,
+      supplier: l.supplier_name || '—', by: l.by || '—' });
+  }));
+  rows.sort((a,b) => (b.date || '').localeCompare(a.date || ''));
+  const total = rows.reduce((s,r) => s + r.qty * r.cost, 0);
+  if (!rows.length) return emptyState('لا مشتريات مسجلة في هذه الفترة — سجّلها من شاشة المخزون «+ إضافة للمخزون»');
+  return `
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi rpt-kpi-blue"><div class="rpt-kpi-icon">🚚</div><div class="rpt-kpi-val">${fmtNum(rows.length)}</div><div class="rpt-kpi-lbl">عمليات شراء</div></div>
+    <div class="rpt-kpi rpt-kpi-red"><div class="rpt-kpi-icon">💸</div><div class="rpt-kpi-val">${fmtMoney(total)}</div><div class="rpt-kpi-lbl">إجمالي المشتريات</div></div>
+  </div>
+  <div class="rpt-card">
+    <table class="rpt-table">
+      <thead><tr><th>التاريخ</th><th>المادة</th><th>الشراء</th><th>الكمية الأساسية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>المورد</th><th>سجّلها</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `
+        <tr>
+          <td>${e(r.date)}</td>
+          <td>${e(r.mat)}</td>
+          <td>${e(r.mode)}${r.purchaseQty != null ? ` · فاتورة ${fmtNum(r.purchaseQty)}` : ''}</td>
+          <td class="rpt-num">${fmtNum(r.qty)} ${e(r.unit)}</td>
+          <td class="rpt-num">${fmtNum(r.cost)}</td>
+          <td class="rpt-num"><b>${fmtNum(Math.round(r.qty * r.cost))}</b></td>
+          <td>${e(r.supplier)}</td>
+          <td>${e(r.by)}</td>
+        </tr>`).join('')}
+        <tr><td colspan="5"><b>الإجمالي</b></td><td class="rpt-num"><b>${fmtNum(Math.round(total))}</b></td><td colspan="2"></td></tr>
+      </tbody>
+    </table>
+  </div>`;
+}

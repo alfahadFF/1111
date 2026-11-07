@@ -1,0 +1,15 @@
+# Runtime local data and generated files
+offline-data/
+node_modules/
+*.zip
+*.log
+*.tmp
+Aalamsystem-clean/
+
+# Local-only documentation, diagnostics, archives, and desktop shortcut artifacts
+OFFLINE_SETUP_AR.md
+cancel_diagnostic.html
+supabase_fixes.sql
+modified-pos-files.zip
+*.lnk
+alfaprosys.ico

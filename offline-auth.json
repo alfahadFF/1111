@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "algorithm": "pbkdf2-sha256",
+  "users": {
+    "cashier_morning": {
+      "role": "cashier",
+      "salt": "9dc4c2a17533c2ae42cbc4fd1fa64328",
+      "hash": "dce19f0573293ec8850456030f082a1e0707cc8de7fb8e0a2de8e05dc86c6c2c",
+      "iterations": 210000
+    },
+    "cashier_evening": {
+      "role": "cashier",
+      "salt": "5439a4c1d0fb1a2c7bbd95f264c25b84",
+      "hash": "96bb1cb60d92ca6ef601a7240582ee5ff9d155e37e0fe7a5107819a7ac143fee",
+      "iterations": 210000
+    },
+    "manager": {
+      "role": "manager",
+      "salt": "c3d75600703a6f2edc68107fca72e761",
+      "hash": "cc2437f0bb8291deb5b6f0f5f1f6c2179f0331d6e85312d50df6444f765f8f52",
+      "iterations": 210000
+    }
+  }
+}

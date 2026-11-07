@@ -1,0 +1,1029 @@
+/* ============================================================
+   pos_quick.css — أنماط «نمط الأزرار السريعة» في شاشة البيع
+   ────────────────────────────────────────────────────────────
+   تُحمَّل بعد style.css في pos.html و pos2.html معاً.
+   كل قاعدة هنا خاصة بالنمط الجديد فقط (صنفه .dops-grid /
+   .quick-note-box / .d-filter-strip / .qn-* / .ot-chip …) فلا
+   تؤثر على الأنماط الأخرى (أزرر / مباشر / منسدل).
+   ============================================================ */
+
+/* ============================================================
+   pos2.css — أنماط نسخة التعديل من شاشة البيع (pos2.html)
+   ────────────────────────────────────────────────────────────
+   عدّل هنا بحرية — لن يتأثر pos.html الأصلي (شاشة البيع العاملة)
+   بأي تغيير، لأن كل قاعدة هنا محمّلة بعد style.css فتتغلّب عليه.
+   ============================================================ */
+
+
+/* ══════════════════════════════════════════════════════════════
+   ١) شريط أنواع الطلب: «أونلاين» و«عقود» فقط — بزرّين كبيرين
+      (السفري هو الافتراضي الضمني، ما بيحتاج زر)
+   ══════════════════════════════════════════════════════════════ */
+.d-otbar { gap: 6px; }
+.d-mid .ot-btn.ot-big {
+  flex: 1 1 0;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 800;
+  border-width: 2px;
+}
+.d-mid .ot-btn.online-ot-btn {
+  background: #ecfdf5;
+  border-color: #10b981;
+  color: #065f46;
+}
+.d-mid .ot-btn.online-ot-btn.active,
+.d-mid .ot-btn.online-ot-btn:hover { background: #10b981; color: #fff; }
+
+/* شارة «توصيل» — تظهر بمجرد إضافة خدمة التوصيل للفاتورة */
+.d-mid .delivery-live-badge {
+  background: #D97706;
+  border-color: #b45309;
+  color: #fff;
+  cursor: default;
+  animation: dlvPulse 1.6s ease-in-out infinite;
+}
+@keyframes dlvPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217,119,6,.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(217,119,6,0); }
+}
+
+/* شارة نوع الطلب الحالي في الشريط العلوي */
+.ot-chip {
+  background: #102A43;
+  color: #fff;
+  border-color: #102A43;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ٢) عمود العمليات: أزرار ب عمودين + مربع الكتابة السريعة تحتها
+   ══════════════════════════════════════════════════════════════ */
+.d-ops { min-width: 224px; flex: 17 1 0%; }
+
+.dops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.dops-grid .dop-btn {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 46px;
+  padding: 5px 3px;
+  text-align: center;
+}
+.dops-grid .dop-btn span { font-size: 17px; }
+.dops-grid .dop-btn small { font-size: 10.5px; text-align: center; flex: none; }
+
+/* ── مربع الكتابة السريعة ── */
+.quick-note-box {
+  direction: rtl;
+  margin-top: 6px;
+  background: #fff;
+  border: 2px solid #102A43;
+  border-radius: 6px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* رأس المربع: بلا عنوان — «الهدف: الصنف» وشارة الحرف فقط */
+.qn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 20px;
+}
+.qn-target {
+  font-weight: 800;
+  font-size: 11px;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 99px;
+  padding: 3px 8px;
+  max-width: 74%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid #94a3b8;
+  border-radius: 5px;
+  padding: 9px 8px;
+  font: 800 14px Tahoma, Arial, sans-serif;
+  background: #fffbeb;
+  color: #0f172a;
+  outline: none;
+}
+.quick-note-input:focus {
+  border-color: #D97706;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(217,119,6,.18);
+}
+.qn-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.qn-btn {
+  border: none;
+  border-radius: 5px;
+  padding: 9px 4px;
+  font: 800 12px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+  color: #fff;
+}
+.qn-item  { background: #0f766e; }
+.qn-item:hover  { background: #115e59; }
+.qn-order { background: #1d4ed8; }
+.qn-order:hover { background: #1e40af; }
+
+/* ── اكتب تعديلاتك تحت هذا السطر ── */
+
+/* ══════════════════════════════════════════════════════════════
+   ٣) المربع = تصفية فورية (حرف/حرفين) + كتابة ملاحظة
+   ══════════════════════════════════════════════════════════════ */
+
+/* شارة الحرف المكتوب داخل رأس المربع */
+.qn-filter {
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: #D97706;
+  color: #fff;
+  font: 800 12px Tahoma, Arial, sans-serif;
+}
+.qn-filter:empty { display: none; }
+
+/* شريط التصفية فوق شبكة الأصناف — الأصناف تبقى بنفس مكانها */
+.d-filter-strip {
+  direction: rtl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 5px 8px;
+  background: #ecfdf5;
+  border: 1.5px solid #10b981;
+  border-radius: 6px;
+  color: #065f46;
+  font: 800 12px Tahoma, Arial, sans-serif;
+}
+.d-filter-strip button {
+  border: none;
+  background: #10b981;
+  color: #fff;
+  border-radius: 99px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  font-size: 12px;
+}
+.d-filter-strip button:hover { background: #047857; }
+.d-items-hint { direction: rtl; }
+
+/* ══════════════════════════════════════════════════════════════
+   ٤) الجوال: المربع أعلى كتلة العمليات ويلاصق الشاشة (sticky)
+      والشريط يمتلئ بعرض الشاشة مهما كان عدد الأزرار
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 899px) {
+  .d-mid .d-otbar { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+  .d-ops { flex-direction: column; flex-wrap: nowrap; overflow: visible; }
+  .dops-grid { width: 100%; }
+  .dops-grid .dop-btn { min-height: 42px; }
+  .quick-note-box {
+    width: 100%;
+    order: -1;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, .2);
+  }
+  .quick-note-input { min-height: 46px; font-size: 16px; } /* 16px يمنع تكبير Safari */
+  .qn-btn { min-height: 44px; font-size: 13px; }
+  .d-filter-strip { margin: 0 0 6px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ٥) اقتراحات من الكتابات السابقة (تظهر تحت المربع عند كتابة
+      ٣ حروف أو أكثر — مثلاً «بدو» ⇒ «بدون ثوم» من مرة سابقة)
+   ══════════════════════════════════════════════════════════════ */
+.quick-note-box { position: relative; }
+.qn-suggest {
+  position: absolute;
+  top: 100%;
+  left: -2px;
+  right: -2px;
+  z-index: 60;
+  background: #fff;
+  border: 2px solid #102A43;
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  max-height: 172px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .25);
+}
+.qn-suggest[hidden] { display: none; }
+.qn-sug-head {
+  direction: rtl;
+  font: 800 10px Tahoma, Arial, sans-serif;
+  color: #64748b;
+  padding: 4px 8px;
+  background: #f1f5f9;
+}
+.qn-sug {
+  display: block;
+  width: 100%;
+  direction: rtl;
+  text-align: right;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px 8px;
+  font: 700 13px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+}
+.qn-sug:last-child { border-bottom: 0; }
+.qn-sug:hover, .qn-sug:active { background: #ecfdf5; color: #065f46; }
+
+/* ══════════════════════════════════════════════════════════════
+   ٦) تصفية حيّة: إخفاء غير المطابق بكلاس (بلا إعادة بناء DOM)
+      ⇒ لا وميض للشاشة ولا فقدان نص المؤشر أثناء الكتابة
+   ══════════════════════════════════════════════════════════════ */
+.d-menu-grid .item-btn.qn-off { display: none !important; }
+.d-filter-empty {
+  direction: rtl;
+  padding: 14px 10px;
+  text-align: center;
+  color: #64748b;
+  font: 800 13px Tahoma, Arial, sans-serif;
+}
+.d-filter-empty[hidden] { display: none; }
+.d-filter-strip span { white-space: nowrap; }
+
+/* شبكة التصفية: [hidden] لازم يغلّها فعلاً (قاعدة display:grid تتغلّب على
+   قاعدة المتصفح الافتراضية فتبقى الشبكة ظاهرة فارغة) */
+.qn-filter-grid[hidden] { display: none !important; }
+
+/* ══════════════════════════════════════════════════════════════
+   إعادة تصميم النمط الأخير (quick) — شاشة سطح مكتب كاملة
+   كل المحددات هنا تبدأ بـ .quick-pos كي تبقى الأنماط الأخرى كما هي.
+   ══════════════════════════════════════════════════════════════ */
+
+html:has(.quick-pos),
+body:has(.quick-pos) {
+  overflow: hidden;
+  height: 100%;
+}
+.pos-page-shell:has(.quick-pos) {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.quick-pos {
+  height: 100%;
+  min-height: 0;
+  padding: 5px 7px 7px;
+  gap: 5px;
+  background: #f8fafc;
+}
+.quick-pos .d-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 7px;
+  overflow: hidden;
+}
+.quick-pos .d-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  gap: 5px;
+}
+.quick-pos .d-mid {
+  flex: 0 0 236px;
+  width: 236px;
+  min-width: 214px;
+  background: #f8fafc;
+  border-color: #dbe4ee;
+  padding: 5px;
+  gap: 5px;
+}
+.quick-pos .d-ops {
+  flex: 0 0 232px;
+  width: 232px;
+  min-width: 220px;
+  background: #f8fafc;
+  border-color: #dbe4ee;
+  padding: 5px;
+  gap: 5px;
+  overflow-y: auto;
+  direction: rtl;
+}
+.quick-pos .d-invwrap {
+  max-height: 34%;
+  border-color: #c9d9e8;
+  border-radius: 8px;
+}
+.quick-pos .order-note-editor { display: none !important; }
+.quick-pos .dinv-row.empty { display: none; }
+.quick-pos .d-items {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 5px;
+  border-color: #dbe4ee;
+  background: #f8fafc;
+}
+
+/* الصنف = نقرة واحدة، والنقر المتكرر يزيد الكمية. */
+.quick-pos .quick-items-stage {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.quick-pos .quick-item-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: start;
+  gap: 5px;
+  padding: 1px;
+}
+.quick-pos .quick-item-grid .item-btn {
+  min-height: 60px;
+  border-radius: 9px;
+  box-shadow: none;
+  color: #1e293b;
+  touch-action: manipulation;
+  /* يمنع تدرج style.css أو أي شفافية موروثة؛ لون كل زر يأتي من
+     quickItemStyle/زر الخدمة كلون سداسي صلب. */
+  background-image: none !important;
+}
+.quick-pos .quick-item-grid .quick-service-btn {
+  min-height: 84px;
+  background-image: none !important;
+}
+.quick-pos .quick-service-btn.selected {
+  outline: 3px solid #67C7D1;
+  outline-offset: 1px;
+}
+.quick-pos .quick-item-grid .item-btn:hover {
+  transform: translateY(-1px);
+}
+.quick-pos .quick-item-grid .item-btn:active {
+  transform: scale(.97);
+}
+.quick-pos .item-name-main,
+.quick-pos .item-name-sub {
+  color: #334155;
+}
+.quick-pos .item-name-main { font-size: 13px; }
+.quick-pos .item-name-sub { font-size: 11px; }
+.quick-pos .item-price {
+  display: block;
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.quick-pos .item-price b { color: #475569; }
+.quick-pos .quick-pager-slot {
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: grid;
+  width: calc(25% - 4px);
+  align-self: flex-start;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 5px;
+  direction: ltr;
+  padding: 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 -3px 9px rgba(15,23,42,.08);
+}
+.quick-pos .quick-pager-slot button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #334155;
+  font: 800 11px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+}
+.quick-pos .quick-pager-slot button:disabled { opacity: .38; cursor: not-allowed; }
+.quick-pos .quick-pager-slot span {
+  direction: rtl;
+  white-space: nowrap;
+  color: #64748b;
+  font: 800 10.5px Tahoma, Arial, sans-serif;
+}
+
+/* التصنيفات والخدمات: درجات فاتحة فقط، مع بقاء مكان شريط الصفحات مستقراً. */
+.quick-pos .d-mid .d-cat {
+  min-height: 36px;
+  padding: 6px 8px;
+  border-color: #d5dee8;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 8px;
+}
+.quick-pos .d-mid .d-cat:hover { border-color: #93c5fd; background: #f8fbff; }
+.quick-pos .d-mid .d-cat.active {
+  background: #e0f2fe;
+  border-color: #93c5fd;
+  color: #1e3a5f;
+}
+.quick-pos .d-mid .d-cat.svc-dcat {
+  flex: 0 0 auto;
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #7c4a16;
+}
+.quick-pos .d-mid .d-cats {
+  gap: 4px;
+  padding: 1px;
+}
+.quick-pos .d-mid .ot-btn.ot-big {
+  background: #ffffff;
+  border-color: #d5dee8;
+  color: #334155;
+}
+.quick-pos .d-mid .ot-btn.ot-big.active {
+  background: #e0f2fe;
+  border-color: #93c5fd;
+  color: #1e3a5f;
+}
+.quick-pos .d-mid .delivery-live-badge {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #7c4a16;
+  animation: none;
+}
+
+/* العمود الجانبي: أربعة أزرار فقط، ثم لوحة الأرقام، ثم مربع الكتابة. */
+.quick-pos .quick-four-ops { flex: 0 0 auto; }
+.quick-pos .quick-four-ops .dop-btn {
+  min-height: 43px;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+.quick-pos .quick-four-ops .dop-btn:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.quick-pos .quick-qty-pad {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  background: #ffffff;
+}
+.quick-pos .quick-qty-head {
+  min-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  color: #64748b;
+  font: 800 10.5px Tahoma, Arial, sans-serif;
+}
+.quick-pos .quick-qty-head b { color: #334155; }
+.quick-pos .quick-qty-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  direction: rtl;
+  align-items: stretch;
+}
+.quick-pos .quick-qty-text-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 31px;
+  padding: 4px 7px;
+  border: 1px solid #94a3b8;
+  border-radius: 7px;
+  background: #fff;
+  color: #1e293b;
+  font: 900 13px Tahoma, Arial, sans-serif;
+  text-align: center;
+  direction: ltr;
+}
+.quick-pos .quick-qty-text-input:focus {
+  outline: 2px solid #93c5fd;
+  border-color: #2563eb;
+}
+.quick-pos .quick-qty-apply {
+  min-width: 82px;
+  min-height: 31px;
+  padding: 4px 7px;
+  border: 1px solid #2563eb;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #1e3a5f;
+  font: 900 10px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-pos .quick-qty-apply:hover:not(:disabled) { background: #dbeafe; }
+.quick-pos .quick-qty-apply:disabled,
+.quick-pos .quick-qty-text-input:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.quick-pos .quick-qty-pad .dpad-display {
+  min-height: 27px;
+  padding: 3px 8px;
+  font-size: 15px;
+  background: #f8fafc;
+  border-color: #dbe4ee;
+}
+.quick-pos .quick-qty-pad .dpad-keys { gap: 3px; height: 116px; }
+.quick-pos .quick-qty-pad .dpad-key {
+  min-height: 0;
+  height: auto;
+  border-color: #dbe4ee;
+  background: #f8fafc;
+  color: #334155;
+}
+.quick-pos .quick-qty-pad .dpad-key:hover { background: #eff6ff; border-color: #93c5fd; }
+.quick-pos .quick-qty-pad .dpad-actions { gap: 3px; }
+.quick-pos .quick-qty-pad .dpad-apply,
+.quick-pos .quick-qty-pad .dpad-clear { min-height: 27px; padding: 4px 5px; font-size: 10.5px; }
+.quick-pos .quick-note-box {
+  flex: 0 0 auto;
+  margin-top: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 6px;
+}
+.quick-pos .quick-note-input { min-height: 38px; padding: 7px; font-size: 13px; }
+.quick-pos .qn-head { min-height: 18px; }
+.quick-pos .qn-target { max-width: 82%; }
+.quick-pos .qn-filter { background: #dbeafe; color: #334155; }
+
+/* الصف السفلي: طباعة، حاسبة، طرق الدفع، وأزرار الملاحظات في صف واحد. */
+.quick-pos .d-paybar {
+  flex: 0 0 auto;
+  grid-template-columns: minmax(86px,.8fr) minmax(86px,.8fr) minmax(100px,.9fr) minmax(245px,2.1fr) minmax(285px,2.4fr);
+  gap: 6px;
+  padding: 5px;
+  overflow-x: auto;
+  background: #f8fafc;
+  border-color: #dbe4ee;
+}
+.quick-pos .d-paybar .d-print-btn,
+.quick-pos .d-paybar .d-calc-btn {
+  min-width: 86px;
+  height: 48px;
+  min-height: 48px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
+.quick-pos .d-paybar .d-print-btn { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.quick-pos .d-paybar .d-print-btn:hover:not(:disabled) { background: #bbf7d0; }
+.quick-pos .d-paybar .d-calc-btn { background: #eff6ff; color: #334155; border-color: #bfdbfe; }
+.quick-pos .d-paybar .quick-emergency-btn {
+  min-width: 100px;
+  height: 48px;
+  min-height: 48px;
+  border: 1px solid #FDE68A;
+  border-radius: 9px;
+  background: #FEFCE8;
+  color: #854D0E;
+  font: 900 11px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-pos .d-paybar .quick-emergency-btn:hover:not(:disabled) { background: #FEF3C7; border-color: #FACC15; }
+.quick-pos .d-paybar .quick-emergency-btn:disabled { cursor: not-allowed; color: #94A3B8; background: #F8FAFC; border-color: #E2E8F0; }
+.quick-pos .d-paybar .pay-section {
+  min-width: 245px;
+  padding: 5px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.quick-pos .d-paybar .pay-section-title { font-size: 10px; margin-bottom: 3px; }
+.quick-pos .d-paybar .pay-methods-row { gap: 3px; }
+.quick-pos .d-paybar .pay-method-btn { min-height: 34px; height: 34px; font-size: 10.5px; }
+.quick-pos .quick-bottom-notes {
+  min-width: 285px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 4px;
+  direction: rtl;
+}
+.quick-pos .quick-note-action {
+  min-height: 36px;
+  padding: 3px 4px;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  color: #ffffff;
+  font: 800 10px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+}
+.quick-pos .quick-note-last { background: #0F766E; border-color: #0F766E; }
+.quick-pos .quick-note-last:hover { background: #115E59; border-color: #115E59; }
+.quick-pos .quick-note-selected { background: #2563EB; border-color: #2563EB; }
+.quick-pos .quick-note-selected:hover { background: #1D4ED8; border-color: #1D4ED8; }
+.quick-pos .quick-note-order { background: #D97706; border-color: #D97706; }
+.quick-pos .quick-note-order:hover { background: #B45309; border-color: #B45309; }
+
+/* الخدمات داخل النمط الأخير تبدو كتصنيف ذي ثلاثة أصناف فرعية. */
+.quick-pos ~ .svc-modal .svc-subservices,
+.quick-pos .svc-subservices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+.svc-sub-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 72px;
+  padding: 6px 4px;
+  border: 1.5px solid #dbe4ee;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+}
+.svc-sub-card span { font-size: 20px; line-height: 1; }
+.svc-sub-card b { font-size: 11px; }
+.svc-sub-card small { color: #64748b; font-size: 9px; }
+.svc-sub-card.selected { background: #eff6ff; border-color: #93c5fd; }
+.quick-pos .quick-services-stage { gap: 7px; }
+.quick-pos .quick-services-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  direction: rtl;
+  padding: 5px 7px;
+  border: 1px solid #BFDBFE;
+  border-radius: 8px;
+  background: #EFF6FF;
+  color: #334155;
+  font: 800 11px Tahoma, Arial, sans-serif;
+}
+.quick-pos .quick-services-head span { color: #64748B; font-size: 10px; }
+.quick-pos .quick-services-grid { align-content: start; }
+.quick-pos .quick-services-editor {
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid #CBD5E1;
+  border-radius: 7px;
+  background: #FFFFFF;
+  color: #475569;
+  font: 800 10.5px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+}
+.quick-pos .quick-services-editor:hover { background: #F8FAFC; border-color: #93C5FD; }
+
+/* أحجام سطح المكتب المتوسطة */
+@media (max-width: 1199px) and (min-width: 900px) {
+  .quick-pos .d-mid { flex-basis: 210px; width: 210px; min-width: 195px; }
+  .quick-pos .d-ops { flex-basis: 210px; width: 210px; min-width: 200px; }
+  .quick-pos .quick-item-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quick-pos .quick-pager-slot { width: calc(33.333% - 4px); }
+  .quick-pos .d-paybar { grid-template-columns: 80px 80px 100px 230px 270px; }
+}
+
+/* الهاتف/الشاشة الضيقة: نفس العناصر، مع تمرير أفقي واضح للصف السفلي. */
+@media (max-width: 899px) {
+  html:has(.quick-pos), body:has(.quick-pos), .pos-page-shell:has(.quick-pos) { overflow: auto; height: auto; min-height: 100dvh; }
+  .quick-pos { height: auto; min-height: 100dvh; overflow: visible; }
+  .quick-pos .d-body { flex-direction: column; overflow: visible; }
+  .quick-pos .d-main, .quick-pos .d-mid, .quick-pos .d-ops { width: 100%; min-width: 0; }
+  .quick-pos .d-mid { flex: 0 0 auto; max-height: none; }
+  .quick-pos .d-ops { flex: 0 0 auto; flex-direction: column; overflow: visible; background: #f8fafc; border: 1px solid #dbe4ee; padding: 5px; }
+  .quick-pos .quick-item-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 48svh; }
+  .quick-pos .quick-pager-slot { width: calc(33.333% - 4px); }
+  .quick-pos .d-invwrap { max-height: 30svh; }
+  .quick-pos .d-paybar { display: flex; flex-wrap: nowrap; overflow-x: auto; align-items: stretch; }
+  .quick-pos .d-paybar > * { flex: 0 0 auto; }
+  .quick-pos .d-paybar .pay-section { min-width: 245px; }
+  .quick-pos .quick-bottom-notes { min-width: 285px; }
+  .quick-pos .quick-qty-pad { max-width: none; }
+  .quick-pos .quick-qty-pad .dpad-keys { height: 145px; }
+  .quick-pos .dops-grid { width: 100%; }
+}
+
+/* تصحيحات النمط التجريبي الأخيرة حسب شاشة الكاشير المطلوبة */
+.quick-pos > .d-paybar {
+  width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+/* صف الفاتورة: سبعة صفوف ظاهرة دائماً، سيان 100 ثم أبيض بالتناوب.
+   خُفّض ارتفاع الصف 3px تقريباً عن القياس السابق. */
+.quick-pos .d-invwrap {
+  max-height: none;
+  flex: 0 0 auto;
+}
+.quick-pos .dinv-rows {
+  flex: 0 0 217px;
+  height: 217px;
+  min-height: 217px;
+  max-height: 217px;
+  overflow-y: auto;
+}
+.quick-pos .dinv-row {
+  min-height: 31px;
+  background: #fff !important;
+}
+.quick-pos .dinv-rows .dinv-row:nth-child(odd) {
+  background: #B2EBF2 !important;
+}
+.quick-pos .dinv-rows .dinv-row:nth-child(even) {
+  background: #ffffff !important;
+}
+.quick-pos .dinv-rows .dinv-row.empty {
+  display: grid !important;
+  color: #64748b;
+}
+.quick-pos .dinv-rows .dinv-row.selected {
+  background: #E0F2FE !important;
+  outline: 2px solid #67C7D1;
+}
+.quick-pos .qty-quick-display {
+  display: inline-flex;
+  min-width: 32px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #67C7D1;
+  border-radius: 6px;
+  background: rgba(255,255,255,.78);
+  color: #164E63;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+/* لوحة الأرقام: أزرار فعلية كبيرة للنقر، بلا حقل كتابة للكمية. */
+.quick-pos .quick-qty-pad .dpad-keys {
+  height: auto;
+  grid-auto-rows: 42px;
+}
+.quick-pos .quick-qty-pad .dpad-key {
+  min-height: 42px;
+  font-size: 19px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.quick-pos .quick-qty-pad .quick-qty-keys {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: 30px;
+  height: auto;
+  gap: 3px;
+}
+.quick-pos .quick-qty-pad .quick-qty-keys .dpad-key {
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 13px;
+}
+.quick-pos .quick-qty-hint {
+  direction: rtl;
+  text-align: center;
+  color: #64748B;
+  font: 800 9.5px Tahoma, Arial, sans-serif;
+}
+.quick-pos .quick-category-pager {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 4px;
+  direction: ltr;
+  padding: 4px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  background: #FFFFFF;
+}
+.quick-pos .quick-category-pager button {
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid #BFDBFE;
+  border-radius: 7px;
+  background: #EFF6FF;
+  color: #334155;
+  font: 900 10.5px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+}
+.quick-pos .quick-category-pager button:hover:not(:disabled) { background: #DBEAFE; border-color: #93C5FD; }
+.quick-pos .quick-category-pager button:disabled { background: #F8FAFC; color: #94A3B8; border-color: #E2E8F0; cursor: not-allowed; }
+.quick-pos .quick-category-pager span {
+  direction: rtl;
+  white-space: nowrap;
+  color: #475569;
+  font: 900 10px Tahoma, Arial, sans-serif;
+}
+
+/* السابق/التالي خارج شبكة الأصناف وتحت أزرار التصنيفات عند تعدد الصفحات. */
+.quick-pos .quick-item-grid .quick-page-btn {
+  min-height: 67px;
+  padding: 5px;
+  border: 2px solid #93C5FD;
+  border-radius: 9px;
+  background: #E0F2FE;
+  color: #164E63;
+  cursor: pointer;
+}
+.quick-pos .quick-item-grid .quick-page-btn:hover:not(:disabled) {
+  background: #BAE6FD;
+  border-color: #67C7D1;
+}
+.quick-pos .quick-item-grid .quick-page-btn:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+.quick-pos .quick-item-grid .quick-page-btn .item-name-main {
+  color: #164E63;
+  font-size: 13px;
+}
+.quick-pos .quick-item-grid .quick-page-btn .item-name-sub {
+  color: #3F6875;
+  font-size: 10px;
+}
+
+@media (max-width: 899px) {
+  .quick-pos .dinv-rows {
+    flex-basis: 272px;
+    height: 272px;
+    min-height: 272px;
+    max-height: 272px;
+  }
+}
+
+/* ── الفلاتر السريعة: بعد زر الخدمات مباشرة، عمودان فقط ── */
+.quick-pos .quick-family-filter-box {
+  flex: 0 0 auto;
+  direction: rtl;
+  margin-top: 2px;
+  padding: 5px;
+  border: 1px solid #dbe4ee;
+  border-radius: 9px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.quick-pos .quick-family-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  grid-auto-rows: minmax(28px, auto);
+  gap: 4px;
+  max-height: none;
+  margin-top: 4px;
+  padding: 1px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.quick-pos .quick-family-filter-btn {
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 5px;
+  border: 2px solid var(--qf-bd, #cbd5e1);
+  border-radius: 7px;
+  background: var(--qf-bg, #f8fafc);
+  color: #1e293b;
+  font: 900 10px Tahoma, Arial, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: filter .12s ease, transform .12s ease, box-shadow .12s ease;
+}
+.quick-pos .quick-family-filter-btn:hover {
+  filter: brightness(.96) saturate(1.08);
+  transform: translateY(-1px);
+}
+.quick-pos .quick-family-filter-btn.active {
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.75), 0 0 0 2px #102a43;
+  color: #102a43;
+}
+
+/* أونلاين و16/20 تحت مجموعة تعليق/تفريغ/حذف في العمود الجانبي. */
+.quick-pos .quick-secondary-ops,
+.direct-pos .side-secondary-ops {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  flex: 0 0 auto;
+  direction: rtl;
+}
+.quick-pos .quick-secondary-ops .ot-btn,
+.direct-pos .side-secondary-ops .ot-btn {
+  width: 100%;
+  min-height: 42px;
+  padding: 5px 3px;
+  justify-content: center;
+  border-width: 2px;
+  font-size: 10.5px;
+  font-weight: 900;
+  white-space: normal;
+  line-height: 1.2;
+}
+.quick-pos .quick-secondary-ops .online-ot-btn,
+.direct-pos .side-secondary-ops .online-ot-btn {
+  background: #ecfdf5;
+  border-color: #10b981;
+  color: #065f46;
+}
+.quick-pos .quick-secondary-ops .item-page-size-btn,
+.direct-pos .side-secondary-ops .item-page-size-btn {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1e3a5f;
+}
+.direct-pos .side-secondary-ops { margin: 1px 0; }
+
+@media (max-width: 899px) {
+  .quick-pos .d-cats {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .quick-pos .quick-family-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row;
+  }
+}
+
+/* حالة التحصيل ورقم الفاتورة — فوق مجموعة ملاحظات الطلب، ولا تمس مسار الطباعة */
+.quick-pos .cashier-payment-controls {
+  min-width: 210px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 30px 30px;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  direction: rtl;
+}
+.quick-pos .cashier-payment-invoice {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 3px 7px;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  font: 800 12px Tahoma, Arial, sans-serif;
+  text-align: center;
+}
+.quick-pos .cashier-payment-btn {
+  min-width: 0;
+  border: 1px solid;
+  border-radius: 6px;
+  font: 900 11px Tahoma, Arial, sans-serif;
+  cursor: pointer;
+}
+.quick-pos .cashier-payment-btn.paid { color: #166534; background: #dcfce7; border-color: #86efac; }
+.quick-pos .cashier-payment-btn.paid:hover { background: #bbf7d0; }
+.quick-pos .cashier-payment-btn.unpaid { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
+.quick-pos .cashier-payment-btn.unpaid:hover { background: #fde68a; }
+@media (min-width: 900px) {
+  .quick-pos .d-paybar { grid-template-columns: minmax(86px,.8fr) minmax(86px,.8fr) minmax(100px,.9fr) minmax(245px,2.1fr) minmax(210px,1.8fr) minmax(285px,2.4fr); }
+}
+@media (max-width: 899px) {
+  .quick-pos .cashier-payment-controls { min-width: 210px; }
+}

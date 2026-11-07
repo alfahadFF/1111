@@ -1,0 +1,12 @@
+{
+  "name": "aalamsystem",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "offline": "node offline_server.js",
+    "preview": "node preview_server.js"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
